@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Stage, Layer, Rect, Group, Text, Line, Circle } from 'react-konva';
+import { Stage, Layer, Group, Text, Line, Circle, Rect } from 'react-konva';
 import { KonvaEventObject } from 'konva/lib/Node';
 import {
     MousePointer,
@@ -10,6 +10,7 @@ import {
     Redo2,
     Trash2,
     RotateCcw,
+    Maximize2,
 } from 'lucide-react';
 import { CanvasBlock, Connection, Selection } from '../hooks/useBlocks';
 import { BlockDefinition, BLOCK_CATEGORIES, BlockCategory } from '../data/blockDefinitions';
@@ -27,7 +28,12 @@ interface VisualCanvasProps {
     onBlockMove: (id: string, x: number, y: number) => void;
     onBlockHover: (id: string | null) => void;
     onBlockValueChange: (id: string, key: string, value: string) => void;
-    onConnectionCreate: (fromBlockId: string, fromPortId: string, toBlockId: string, toPortId: string) => boolean;
+    onConnectionCreate: (
+        fromBlockId: string,
+        fromPortId: string,
+        toBlockId: string,
+        toPortId: string
+    ) => boolean;
     onConnectionRemove: (id: string) => void;
     onCanvasClick: () => void;
     onDeleteSelected: () => void;
@@ -86,7 +92,36 @@ export default function VisualCanvas({
         return () => window.removeEventListener('resize', updateDimensions);
     }, []);
 
-    // Handle canvas drag & drop
+    // Keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Tool shortcuts
+            if (e.key === 'v' || e.key === 'V') {
+                setTool('select');
+            } else if (e.key === 'h' || e.key === 'H') {
+                setTool('pan');
+            }
+            // Delete selected
+            else if ((e.key === 'Delete' || e.key === 'Backspace') && selection.blockIds.length > 0) {
+                onDeleteSelected();
+            }
+            // Undo/Redo
+            else if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'z' && !e.shiftKey && canUndo) {
+                    e.preventDefault();
+                    onUndo();
+                } else if ((e.key === 'Z' || (e.key === 'z' && e.shiftKey)) && canRedo) {
+                    e.preventDefault();
+                    onRedo();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selection, canUndo, canRedo, onUndo, onRedo, onDeleteSelected]);
+
+    // Canvas drag & drop
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
@@ -104,38 +139,42 @@ export default function VisualCanvas({
                 const x = (e.clientX - rect.left - position.x) / scale;
                 const y = (e.clientY - rect.top - position.y) / scale;
                 onDropBlock(block, x, y);
+                showToast.success(`Added ${block.name} block`);
             }
         } catch {
-            console.error('Failed to parse dropped block data');
+            showToast.error('Failed to add block');
         }
     };
 
     // Zoom handling
-    const handleWheel = useCallback((e: KonvaEventObject<WheelEvent>) => {
-        e.evt.preventDefault();
-        const scaleBy = 1.1;
-        const stage = e.target.getStage();
-        if (!stage) return;
+    const handleWheel = useCallback(
+        (e: KonvaEventObject<WheelEvent>) => {
+            e.evt.preventDefault();
+            const scaleBy = 1.1;
+            const stage = e.target.getStage();
+            if (!stage) return;
 
-        const oldScale = scale;
-        const pointer = stage.getPointerPosition();
-        if (!pointer) return;
+            const oldScale = scale;
+            const pointer = stage.getPointerPosition();
+            if (!pointer) return;
 
-        const mousePointTo = {
-            x: (pointer.x - position.x) / oldScale,
-            y: (pointer.y - position.y) / oldScale,
-        };
+            const mousePointTo = {
+                x: (pointer.x - position.x) / oldScale,
+                y: (pointer.y - position.y) / oldScale,
+            };
 
-        const direction = e.evt.deltaY > 0 ? -1 : 1;
-        const newScale = direction > 0 ? oldScale * scaleBy : oldScale / scaleBy;
-        const clampedScale = Math.max(0.25, Math.min(2, newScale));
+            const direction = e.evt.deltaY > 0 ? -1 : 1;
+            const newScale = direction > 0 ? oldScale * scaleBy : oldScale / scaleBy;
+            const clampedScale = Math.max(0.25, Math.min(3, newScale));
 
-        setScale(clampedScale);
-        setPosition({
-            x: pointer.x - mousePointTo.x * clampedScale,
-            y: pointer.y - mousePointTo.y * clampedScale,
-        });
-    }, [scale, position]);
+            setScale(clampedScale);
+            setPosition({
+                x: pointer.x - mousePointTo.x * clampedScale,
+                y: pointer.y - mousePointTo.y * clampedScale,
+            });
+        },
+        [scale, position]
+    );
 
     // Pan handling
     const handleMouseDown = (e: KonvaEventObject<MouseEvent>) => {
@@ -151,7 +190,10 @@ export default function VisualCanvas({
         const stage = e.target.getStage();
         const pointer = stage?.getPointerPosition();
         if (pointer) {
-            setMousePos({ x: (pointer.x - position.x) / scale, y: (pointer.y - position.y) / scale });
+            setMousePos({
+                x: (pointer.x - position.x) / scale,
+                y: (pointer.y - position.y) / scale
+            });
         }
 
         if (isDragging) {
@@ -165,28 +207,28 @@ export default function VisualCanvas({
     const handleMouseUp = () => {
         setIsDragging(false);
 
-        // Complete connection if we have a start and are hovering over a valid port
+        // Complete connection
         if (connectionStart && hoveredPortId) {
-            const targetBlock = blocks.find(b =>
-                b.definition.inputs.some(p => p.id === hoveredPortId) ||
-                b.definition.outputs.some(p => p.id === hoveredPortId)
+            const targetBlock = blocks.find((b) =>
+                [...b.definition.inputs, ...b.definition.outputs].some((p) => p.id === hoveredPortId)
             );
 
             if (targetBlock) {
-                const targetPort = [...targetBlock.definition.inputs, ...targetBlock.definition.outputs]
-                    .find(p => p.id === hoveredPortId);
-                const sourceBlock = blocks.find(b => b.id === connectionStart.blockId);
-                const sourcePort = sourceBlock ?
-                    [...sourceBlock.definition.inputs, ...sourceBlock.definition.outputs]
-                        .find(p => p.id === connectionStart.portId) : null;
+                const targetPort = [...targetBlock.definition.inputs, ...targetBlock.definition.outputs].find(
+                    (p) => p.id === hoveredPortId
+                );
+                const sourceBlock = blocks.find((b) => b.id === connectionStart.blockId);
+                const sourcePort = sourceBlock
+                    ? [...sourceBlock.definition.inputs, ...sourceBlock.definition.outputs].find(
+                        (p) => p.id === connectionStart.portId
+                    )
+                    : null;
 
                 if (targetPort && sourcePort && sourceBlock) {
-                    // Validate connection
                     const validation = validateConnection(sourcePort, targetPort);
 
                     if (validation.isValid) {
-                        // Determine which is input and which is output
-                        const isSourceOutput = connectionStart.portType === 'output';
+                        const isSourceOutput = connectionStart.portType === 'output' || connectionStart.portType === 'flow-out';
                         const fromBlockId = isSourceOutput ? connectionStart.blockId : targetBlock.id;
                         const fromPortId = isSourceOutput ? connectionStart.portId : hoveredPortId;
                         const toBlockId = isSourceOutput ? targetBlock.id : connectionStart.blockId;
@@ -194,9 +236,9 @@ export default function VisualCanvas({
 
                         const success = onConnectionCreate(fromBlockId, fromPortId, toBlockId, toPortId);
                         if (success) {
-                            showToast.connection('Connection created successfully');
+                            showToast.connection('Connection created');
                         } else {
-                            showToast.error('Failed to create connection');
+                            showToast.error('Connection failed');
                         }
                     } else {
                         showToast.error(validation.reason || 'Invalid connection');
@@ -209,12 +251,21 @@ export default function VisualCanvas({
         setHoveredPortId(null);
     };
 
+    // Reset view
+    const handleResetView = () => {
+        setScale(1);
+        setPosition({ x: 0, y: 0 });
+        showToast.info('View reset');
+    };
+
     // Block rendering
     const renderBlock = (block: CanvasBlock) => {
         const isSelected = selection.blockIds.includes(block.id);
         const isHovered = hoveredBlockId === block.id;
         const isHighlighted = highlightedBlockId === block.id;
         const categoryInfo = BLOCK_CATEGORIES[block.definition.category as BlockCategory];
+
+        const glowIntensity = isHighlighted ? 30 : isSelected ? 20 : isHovered ? 15 : 0;
 
         return (
             <Group
@@ -233,17 +284,18 @@ export default function VisualCanvas({
                 onMouseEnter={() => onBlockHover(block.id)}
                 onMouseLeave={() => onBlockHover(null)}
             >
-                {/* Block Shadow */}
+                {/* Shadow */}
                 <Rect
                     x={4}
                     y={4}
                     width={block.width}
                     height={block.height}
                     cornerRadius={12}
-                    fill="rgba(0, 0, 0, 0.3)"
+                    fill="rgba(0, 0, 0, 0.4)"
+                    opacity={0.6}
                 />
 
-                {/* Block Background */}
+                {/* Background */}
                 <Rect
                     width={block.width}
                     height={block.height}
@@ -258,44 +310,39 @@ export default function VisualCanvas({
                                     ? `${categoryInfo.color}80`
                                     : 'rgba(255, 255, 255, 0.1)'
                     }
-                    strokeWidth={isSelected || isHighlighted ? 2 : 1}
+                    strokeWidth={isSelected || isHighlighted ? 3 : 1}
                     shadowColor={isHighlighted ? '#00FFFF' : categoryInfo.color}
-                    shadowBlur={isSelected || isHighlighted ? 20 : 0}
-                    shadowOpacity={0.5}
+                    shadowBlur={glowIntensity}
+                    shadowOpacity={0.6}
                 />
 
-                {/* Block Header */}
+                {/* Header */}
                 <Rect
                     width={block.width}
-                    height={32}
+                    height={36}
                     cornerRadius={[12, 12, 0, 0]}
                     fill={categoryInfo.color}
-                    opacity={0.3}
+                    opacity={0.25}
                 />
 
-                {/* Category Indicator */}
-                <Circle
-                    x={16}
-                    y={16}
-                    radius={5}
-                    fill={categoryInfo.color}
-                />
+                {/* Category Dot */}
+                <Circle x={16} y={18} radius={6} fill={categoryInfo.color} />
 
-                {/* Block Title */}
+                {/* Title */}
                 <Text
-                    x={28}
-                    y={10}
+                    x={30}
+                    y={11}
                     text={block.definition.name}
-                    fontSize={13}
+                    fontSize={14}
                     fontFamily="Inter, system-ui, sans-serif"
                     fontStyle="600"
                     fill="#FFFFFF"
                 />
 
-                {/* Block Type */}
+                {/* Description */}
                 <Text
                     x={12}
-                    y={40}
+                    y={44}
                     text={block.definition.description}
                     fontSize={10}
                     fontFamily="Inter, system-ui, sans-serif"
@@ -306,51 +353,58 @@ export default function VisualCanvas({
 
                 {/* Input Ports */}
                 {block.definition.inputs.map((port, index) => {
-                    const isHovered = hoveredPortId === port.id;
+                    const portY = 70 + index * 28;
+                    const isPortHovered = hoveredPortId === port.id;
                     const portColor = getDataTypeColor(port.dataType);
-                    const isValidTarget = connectionStart && connectionStart.portType === 'output' &&
+                    const isValidTarget =
+                        connectionStart &&
+                        (connectionStart.portType === 'output' || connectionStart.portType === 'flow-out') &&
                         validateConnection(
-                            blocks.find(b => b.id === connectionStart.blockId)?.definition.outputs.find(p => p.id === connectionStart.portId)!,
+                            blocks
+                                .find((b) => b.id === connectionStart.blockId)
+                                ?.definition.outputs.find((p) => p.id === connectionStart.portId)!,
                             port
                         ).isValid;
 
                     return (
                         <Group key={port.id}>
-                            {/* Port highlight ring */}
-                            {(isHovered || (connectionStart && isValidTarget)) && (
+                            {/* Hover ring */}
+                            {(isPortHovered || (connectionStart && isValidTarget)) && (
                                 <Circle
                                     x={0}
-                                    y={60 + index * 24}
-                                    radius={10}
+                                    y={portY}
+                                    radius={11}
                                     fill={isValidTarget ? '#00FF88' : '#00FFFF'}
                                     opacity={0.3}
                                 />
                             )}
+                            {/* Port */}
                             <Circle
                                 x={0}
-                                y={60 + index * 24}
-                                radius={6}
+                                y={portY}
+                                radius={7}
                                 fill={portColor}
-                                stroke={isHovered ? '#FFFFFF' : '#000'}
-                                strokeWidth={isHovered ? 2 : 1}
+                                stroke={isPortHovered ? '#FFFFFF' : '#000000'}
+                                strokeWidth={isPortHovered ? 2.5 : 1.5}
                                 onMouseDown={(e) => {
                                     e.cancelBubble = true;
                                     setConnectionStart({
                                         blockId: block.id,
                                         portId: port.id,
-                                        portType: 'input',
-                                        dataType: port.dataType
+                                        portType: port.type === 'flow-in' ? 'flow-in' : 'input',
+                                        dataType: port.dataType,
                                     });
                                 }}
                                 onMouseEnter={() => setHoveredPortId(port.id)}
                                 onMouseLeave={() => setHoveredPortId(null)}
                             />
                             <Text
-                                x={12}
-                                y={54 + index * 24}
+                                x={14}
+                                y={portY - 6}
                                 text={port.label}
-                                fontSize={10}
-                                fill="rgba(255, 255, 255, 0.6)"
+                                fontSize={11}
+                                fontFamily="Inter, system-ui, sans-serif"
+                                fill="rgba(255, 255, 255, 0.7)"
                             />
                         </Group>
                     );
@@ -358,53 +412,60 @@ export default function VisualCanvas({
 
                 {/* Output Ports */}
                 {block.definition.outputs.map((port, index) => {
-                    const isHovered = hoveredPortId === port.id;
+                    const portY = 70 + index * 28;
+                    const isPortHovered = hoveredPortId === port.id;
                     const portColor = getDataTypeColor(port.dataType);
-                    const isValidTarget = connectionStart && connectionStart.portType === 'input' &&
+                    const isValidTarget =
+                        connectionStart &&
+                        (connectionStart.portType === 'input' || connectionStart.portType === 'flow-in') &&
                         validateConnection(
                             port,
-                            blocks.find(b => b.id === connectionStart.blockId)?.definition.inputs.find(p => p.id === connectionStart.portId)!
+                            blocks
+                                .find((b) => b.id === connectionStart.blockId)
+                                ?.definition.inputs.find((p) => p.id === connectionStart.portId)!
                         ).isValid;
 
                     return (
                         <Group key={port.id}>
-                            {/* Port highlight ring */}
-                            {(isHovered || (connectionStart && isValidTarget)) && (
+                            {/* Hover ring */}
+                            {(isPortHovered || (connectionStart && isValidTarget)) && (
                                 <Circle
                                     x={block.width}
-                                    y={60 + index * 24}
-                                    radius={10}
+                                    y={portY}
+                                    radius={11}
                                     fill={isValidTarget ? '#00FF88' : '#00FFFF'}
                                     opacity={0.3}
                                 />
                             )}
+                            {/* Port */}
                             <Circle
                                 x={block.width}
-                                y={60 + index * 24}
-                                radius={6}
+                                y={portY}
+                                radius={7}
                                 fill={portColor}
-                                stroke={isHovered ? '#FFFFFF' : '#000'}
-                                strokeWidth={isHovered ? 2 : 1}
+                                stroke={isPortHovered ? '#FFFFFF' : '#000000'}
+                                strokeWidth={isPortHovered ? 2.5 : 1.5}
                                 onMouseDown={(e) => {
                                     e.cancelBubble = true;
                                     setConnectionStart({
                                         blockId: block.id,
                                         portId: port.id,
-                                        portType: 'output',
-                                        dataType: port.dataType
+                                        portType: port.type === 'flow-out' ? 'flow-out' : 'output',
+                                        dataType: port.dataType,
                                     });
                                 }}
                                 onMouseEnter={() => setHoveredPortId(port.id)}
                                 onMouseLeave={() => setHoveredPortId(null)}
                             />
                             <Text
-                                x={block.width - 50}
-                                y={54 + index * 24}
+                                x={block.width - 60}
+                                y={portY - 6}
                                 text={port.label}
-                                fontSize={10}
-                                fill="rgba(255, 255, 255, 0.6)"
+                                fontSize={11}
+                                fontFamily="Inter, system-ui, sans-serif"
+                                fill="rgba(255, 255, 255, 0.7)"
                                 align="right"
-                                width={40}
+                                width={50}
                             />
                         </Group>
                     );
@@ -419,15 +480,18 @@ export default function VisualCanvas({
         const toBlock = blocks.find((b) => b.id === connection.toBlockId);
         if (!fromBlock || !toBlock) return null;
 
-        const fromPortIndex = fromBlock.definition.outputs.findIndex((p) => p.id === connection.fromPortId);
+        const fromPortIndex = fromBlock.definition.outputs.findIndex(
+            (p) => p.id === connection.fromPortId
+        );
         const toPortIndex = toBlock.definition.inputs.findIndex((p) => p.id === connection.toPortId);
 
-        const startX = fromBlock.x + fromBlock.width;
-        const startY = fromBlock.y + 60 + fromPortIndex * 24;
-        const endX = toBlock.x;
-        const endY = toBlock.y + 60 + toPortIndex * 24;
+        if (fromPortIndex === -1 || toPortIndex === -1) return null;
 
-        // Calculate control points for bezier curve
+        const startX = fromBlock.x + fromBlock.width;
+        const startY = fromBlock.y + 70 + fromPortIndex * 28;
+        const endX = toBlock.x;
+        const endY = toBlock.y + 70 + toPortIndex * 28;
+
         const controlOffset = Math.min(Math.abs(endX - startX) / 2, 100);
 
         return (
@@ -445,43 +509,45 @@ export default function VisualCanvas({
                 ]}
                 bezier
                 stroke="#00FFFF"
-                strokeWidth={2}
+                strokeWidth={2.5}
                 opacity={0.8}
                 lineCap="round"
                 shadowColor="#00FFFF"
-                shadowBlur={8}
-                shadowOpacity={0.5}
+                shadowBlur={10}
+                shadowOpacity={0.6}
             />
         );
     };
 
-    // Temporary connection line while dragging
+    // Temporary connection
     const renderTempConnection = () => {
         if (!connectionStart) return null;
 
         const fromBlock = blocks.find((b) => b.id === connectionStart.blockId);
         if (!fromBlock) return null;
 
-        const isOutput = connectionStart.portType === 'output';
+        const isOutput = connectionStart.portType === 'output' || connectionStart.portType === 'flow-out';
         const portIndex = isOutput
             ? fromBlock.definition.outputs.findIndex((p) => p.id === connectionStart.portId)
             : fromBlock.definition.inputs.findIndex((p) => p.id === connectionStart.portId);
 
-        const startX = isOutput ? fromBlock.x + fromBlock.width : fromBlock.x;
-        const startY = fromBlock.y + 60 + portIndex * 24;
+        if (portIndex === -1) return null;
 
-        // Check if hovering over a valid target port
+        const startX = isOutput ? fromBlock.x + fromBlock.width : fromBlock.x;
+        const startY = fromBlock.y + 70 + portIndex * 28;
+
         let isValid = true;
         if (hoveredPortId) {
-            const targetBlock = blocks.find(b =>
-                b.definition.inputs.some(p => p.id === hoveredPortId) ||
-                b.definition.outputs.some(p => p.id === hoveredPortId)
+            const targetBlock = blocks.find((b) =>
+                [...b.definition.inputs, ...b.definition.outputs].some((p) => p.id === hoveredPortId)
             );
             if (targetBlock) {
-                const targetPort = [...targetBlock.definition.inputs, ...targetBlock.definition.outputs]
-                    .find(p => p.id === hoveredPortId);
-                const sourcePort = [...fromBlock.definition.inputs, ...fromBlock.definition.outputs]
-                    .find(p => p.id === connectionStart.portId);
+                const targetPort = [...targetBlock.definition.inputs, ...targetBlock.definition.outputs].find(
+                    (p) => p.id === hoveredPortId
+                );
+                const sourcePort = [...fromBlock.definition.inputs, ...fromBlock.definition.outputs].find(
+                    (p) => p.id === connectionStart.portId
+                );
                 if (targetPort && sourcePort) {
                     isValid = validateConnection(sourcePort, targetPort).isValid;
                 }
@@ -492,9 +558,9 @@ export default function VisualCanvas({
             <Line
                 points={[startX, startY, mousePos.x, mousePos.y]}
                 stroke={isValid ? '#00FFFF' : '#FF0055'}
-                strokeWidth={2}
-                opacity={0.6}
-                dash={[5, 5]}
+                strokeWidth={2.5}
+                opacity={0.7}
+                dash={[8, 6]}
                 lineCap="round"
             />
         );
@@ -508,12 +574,12 @@ export default function VisualCanvas({
             onDrop={handleDrop}
         >
             {/* Toolbar */}
-            <div className="absolute top-4 left-4 z-10 flex items-center gap-1 p-1 rounded-lg glass-effect border border-white/10">
+            <div className="absolute top-4 left-4 z-10 flex items-center gap-1 p-1 rounded-lg glass-effect border border-white/10 shadow-xl">
                 <button
                     onClick={() => setTool('select')}
                     className={`p-2 rounded-md transition-all duration-200 ${tool === 'select'
-                        ? 'bg-neon-cyan/20 text-neon-cyan'
-                        : 'text-white/60 hover:text-white hover:bg-white/10'
+                            ? 'bg-neon-cyan/20 text-neon-cyan'
+                            : 'text-white/60 hover:text-white hover:bg-white/10'
                         }`}
                     title="Select Tool (V)"
                 >
@@ -522,8 +588,8 @@ export default function VisualCanvas({
                 <button
                     onClick={() => setTool('pan')}
                     className={`p-2 rounded-md transition-all duration-200 ${tool === 'pan'
-                        ? 'bg-neon-cyan/20 text-neon-cyan'
-                        : 'text-white/60 hover:text-white hover:bg-white/10'
+                            ? 'bg-neon-cyan/20 text-neon-cyan'
+                            : 'text-white/60 hover:text-white hover:bg-white/10'
                         }`}
                     title="Pan Tool (H)"
                 >
@@ -531,7 +597,7 @@ export default function VisualCanvas({
                 </button>
                 <div className="w-px h-6 bg-white/20 mx-1" />
                 <button
-                    onClick={() => setScale((s) => Math.min(2, s * 1.2))}
+                    onClick={() => setScale((s) => Math.min(3, s * 1.2))}
                     className="p-2 rounded-md text-white/60 hover:text-white hover:bg-white/10 transition-all duration-200"
                     title="Zoom In"
                 >
@@ -544,18 +610,25 @@ export default function VisualCanvas({
                 >
                     <ZoomOut size={18} />
                 </button>
-                <span className="px-2 text-xs text-white/40 font-mono">
+                <span className="px-2 text-xs text-white/40 font-mono min-w-[50px] text-center">
                     {Math.round(scale * 100)}%
                 </span>
+                <button
+                    onClick={handleResetView}
+                    className="p-2 rounded-md text-white/60 hover:text-white hover:bg-white/10 transition-all duration-200"
+                    title="Reset View"
+                >
+                    <Maximize2 size={18} />
+                </button>
                 <div className="w-px h-6 bg-white/20 mx-1" />
                 <button
                     onClick={onUndo}
                     disabled={!canUndo}
                     className={`p-2 rounded-md transition-all duration-200 ${canUndo
-                        ? 'text-white/60 hover:text-white hover:bg-white/10'
-                        : 'text-white/20 cursor-not-allowed'
+                            ? 'text-white/60 hover:text-white hover:bg-white/10'
+                            : 'text-white/20 cursor-not-allowed'
                         }`}
-                    title="Undo"
+                    title="Undo (Ctrl+Z)"
                 >
                     <Undo2 size={18} />
                 </button>
@@ -563,18 +636,22 @@ export default function VisualCanvas({
                     onClick={onRedo}
                     disabled={!canRedo}
                     className={`p-2 rounded-md transition-all duration-200 ${canRedo
-                        ? 'text-white/60 hover:text-white hover:bg-white/10'
-                        : 'text-white/20 cursor-not-allowed'
+                            ? 'text-white/60 hover:text-white hover:bg-white/10'
+                            : 'text-white/20 cursor-not-allowed'
                         }`}
-                    title="Redo"
+                    title="Redo (Ctrl+Shift+Z)"
                 >
                     <Redo2 size={18} />
                 </button>
                 <div className="w-px h-6 bg-white/20 mx-1" />
                 <button
                     onClick={onDeleteSelected}
-                    className="p-2 rounded-md text-white/60 hover:text-error hover:bg-error/10 transition-all duration-200"
-                    title="Delete Selected"
+                    disabled={selection.blockIds.length === 0}
+                    className={`p-2 rounded-md transition-all duration-200 ${selection.blockIds.length > 0
+                            ? 'text-white/60 hover:text-error hover:bg-error/10'
+                            : 'text-white/20 cursor-not-allowed'
+                        }`}
+                    title="Delete Selected (Del)"
                 >
                     <Trash2 size={18} />
                 </button>
@@ -587,13 +664,13 @@ export default function VisualCanvas({
                 </button>
             </div>
 
-            {/* Grid Background Pattern */}
+            {/* Grid Background */}
             <div
                 className="absolute inset-0 pointer-events-none"
                 style={{
                     backgroundImage: `
-            linear-gradient(rgba(0, 255, 255, 0.02) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0, 255, 255, 0.02) 1px, transparent 1px)
+            linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px)
           `,
                     backgroundSize: `${20 * scale}px ${20 * scale}px`,
                     backgroundPosition: `${position.x}px ${position.y}px`,
@@ -612,16 +689,11 @@ export default function VisualCanvas({
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
-                style={{ cursor: tool === 'pan' || isDragging ? 'grab' : 'default' }}
+                style={{ cursor: tool === 'pan' || isDragging ? 'grabbing' : 'default' }}
             >
                 <Layer>
-                    {/* Connections */}
                     {connections.map(renderConnection)}
-
-                    {/* Temporary Connection */}
                     {renderTempConnection()}
-
-                    {/* Blocks */}
                     {blocks.map(renderBlock)}
                 </Layer>
             </Stage>
@@ -630,20 +702,31 @@ export default function VisualCanvas({
             {blocks.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div className="text-center">
-                        <div className="w-20 h-20 mx-auto mb-4 rounded-2xl glass-effect flex items-center justify-center">
-                            <div className="w-12 h-12 border-2 border-dashed border-white/20 rounded-lg flex items-center justify-center">
-                                <span className="text-2xl text-white/20">+</span>
+                        <div className="w-24 h-24 mx-auto mb-6 rounded-2xl glass-effect flex items-center justify-center border border-white/10">
+                            <div className="w-16 h-16 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center">
+                                <span className="text-3xl text-white/20 font-light">+</span>
                             </div>
                         </div>
-                        <h3 className="text-lg font-semibold text-white/60 mb-2">
-                            Drop blocks here
+                        <h3 className="text-xl font-semibold text-white/70 mb-3">
+                            Start Building
                         </h3>
-                        <p className="text-sm text-white/40 max-w-xs">
-                            Drag blocks from the library to start building your visual program
+                        <p className="text-sm text-white/40 max-w-md mx-auto leading-relaxed">
+                            Drag blocks from the library to create your visual program.
+                            <br />
+                            Connect blocks to define the flow of your application.
                         </p>
                     </div>
                 </div>
             )}
+
+            {/* Stats Footer */}
+            <div className="absolute bottom-4 right-4 z-10 px-3 py-2 rounded-lg glass-effect border border-white/10 text-xs text-white/40 flex items-center gap-4">
+                <span>{blocks.length} blocks</span>
+                <span>{connections.length} connections</span>
+                {selection.blockIds.length > 0 && (
+                    <span className="text-neon-cyan">{selection.blockIds.length} selected</span>
+                )}
+            </div>
         </div>
     );
 }
