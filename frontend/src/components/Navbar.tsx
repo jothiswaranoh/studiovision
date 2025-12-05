@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import {
   Play,
   Moon,
@@ -12,6 +13,7 @@ import {
   Box,
   User,
   Loader2,
+  Gamepad2,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
@@ -68,6 +70,20 @@ export default function Navbar({
         <div className="flex items-center gap-2">
           <span className="text-white/80 text-sm">{projectName}</span>
         </div>
+
+        <div className="h-6 w-px bg-white/20" />
+
+        {/* Games Button */}
+        <Link
+          to="/games"
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${useLocation().pathname.startsWith('/games')
+              ? 'bg-neon-purple/20 text-neon-purple border border-neon-purple/30'
+              : 'text-white/60 hover:text-neon-purple hover:bg-white/5'
+            }`}
+        >
+          <Gamepad2 size={16} />
+          <span>Games</span>
+        </Link>
       </div>
 
       {/* Center Section - Undo/Redo */}
@@ -76,8 +92,8 @@ export default function Navbar({
           onClick={onUndo}
           disabled={!canUndo}
           className={`p-2 rounded-lg transition-all duration-200 ${canUndo
-              ? 'text-white/80 hover:text-neon-cyan hover:bg-white/5'
-              : 'text-white/30 cursor-not-allowed'
+            ? 'text-white/80 hover:text-neon-cyan hover:bg-white/5'
+            : 'text-white/30 cursor-not-allowed'
             }`}
           title="Undo (Ctrl+Z)"
         >
@@ -87,8 +103,8 @@ export default function Navbar({
           onClick={onRedo}
           disabled={!canRedo}
           className={`p-2 rounded-lg transition-all duration-200 ${canRedo
-              ? 'text-white/80 hover:text-neon-cyan hover:bg-white/5'
-              : 'text-white/30 cursor-not-allowed'
+            ? 'text-white/80 hover:text-neon-cyan hover:bg-white/5'
+            : 'text-white/30 cursor-not-allowed'
             }`}
           title="Redo (Ctrl+Y)"
         >
@@ -103,8 +119,8 @@ export default function Navbar({
           onClick={onRun}
           disabled={isRunning}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 ${isRunning
-              ? 'bg-white/10 text-white/50 cursor-wait'
-              : 'bg-gradient-primary text-void hover:shadow-neon-cyan hover:scale-105'
+            ? 'bg-white/10 text-white/50 cursor-wait'
+            : 'bg-gradient-primary text-void hover:shadow-neon-cyan hover:scale-105'
             }`}
         >
           {isRunning ? (

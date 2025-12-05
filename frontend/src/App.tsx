@@ -634,6 +634,11 @@ function App() {
           {/* MAIN APP ROUTE */}
           <Route path="/" element={<AppContent />} />
 
+          {/* GAMES ROUTES */}
+          <Route path="/games" element={<GamesPage />} />
+          <Route path="/games/:language" element={<GamesPage />} />
+          <Route path="/games/:language/:level" element={<GamesPage />} />
+
           {/* CATCH-ALL — Redirect all routes to main page */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

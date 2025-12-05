@@ -15,16 +15,21 @@ import {
   EyeOff,
   PanelRight,
   PanelRightClose,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { Language } from '../data/blockDefinitions';
 import { CanvasBlock } from '../hooks/useBlocks';
 import { explainCode, optimizeCode, convertCode, AIResponse } from '../services/aiService';
+import { useCodeParser } from '../hooks/useCodeParser';
+import showToast from './Toast';
 
 interface CodePanelProps {
   code: string;
   language: Language;
   onLanguageChange: (lang: Language) => void;
   onCodeChange?: (code: string) => void;
+  onBlockValueChange?: (blockId: string, key: string, value: string) => void;
   consoleOutput: string[];
   onCodeLineHover: (line: number | null) => void;
   blocks: CanvasBlock[];
@@ -55,6 +60,7 @@ export default function CodePanel({
   language,
   onLanguageChange,
   onCodeChange,
+  onBlockValueChange,
   consoleOutput,
   onCodeLineHover,
   blocks,
@@ -66,12 +72,17 @@ export default function CodePanel({
   onToggle,
 }: CodePanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('code');
-  const [editorMode, setEditorMode] = useState<EditorMode>('edit');
+  const [editorMode, setEditorMode] = useState<EditorMode>('view');
   const [aiResponse, setAiResponse] = useState<AIResponse | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [localCode, setLocalCode] = useState(code);
+  const [isSyncing, setIsSyncing] = useState(false);
   const editorRef = useRef<any>(null);
+  const decorationsRef = useRef<string[]>([]);
+
+  // Parse code for block updates
+  const parseResult = useCodeParser(localCode, blocks, blockCodeMap, language);
 
   // Automatically show the Console tab whenever new output arrives
   useEffect(() => {
@@ -87,10 +98,12 @@ export default function CodePanel({
     { id: 'preview', label: 'Preview', icon: <Eye size={14} /> },
   ];
 
-  // Update local code when prop changes
+  // Update local code when prop changes (but not during editing)
   useEffect(() => {
-    setLocalCode(code);
-  }, [code]);
+    if (editorMode === 'view') {
+      setLocalCode(code);
+    }
+  }, [code, editorMode]);
 
   // Monaco editor setup
   const handleEditorMount: OnMount = (editor, monaco) => {
@@ -139,11 +152,12 @@ export default function CodePanel({
       }
     });
 
-    // Handle editor changes
+    // Handle editor changes in edit mode
     editor.onDidChangeModelContent(() => {
-      const newCode = editor.getValue();
-      setLocalCode(newCode);
-      onCodeChange?.(newCode);
+      if (editorMode === 'edit') {
+        const newCode = editor.getValue();
+        setLocalCode(newCode);
+      }
     });
 
     // Set initial read-only state
@@ -152,18 +166,46 @@ export default function CodePanel({
     }
   };
 
-  // Highlight code range when block is highlighted
+  // Highlight code range when block is highlighted in view mode
   useEffect(() => {
     if (editorRef.current && highlightedBlockId && editorMode === 'view') {
       const range = blockCodeMap.get(highlightedBlockId);
       if (range) {
-        editorRef.current.setSelection({
-          startLineNumber: range.start + 1,
-          startColumn: 1,
-          endLineNumber: range.end + 1,
-          endColumn: 1000,
-        });
+        // Clear previous decorations
+        if (decorationsRef.current.length > 0) {
+          editorRef.current.deltaDecorations(decorationsRef.current, []);
+        }
+
+        // Add new decoration
+        const newDecorations = editorRef.current.deltaDecorations(
+          [],
+          [
+            {
+              range: {
+                startLineNumber: range.start + 1,
+                startColumn: 1,
+                endLineNumber: range.end + 1,
+                endColumn: 1000,
+              },
+              options: {
+                isWholeLine: true,
+                className: 'highlighted-code-line',
+                glyphMarginClassName: 'highlighted-code-glyph',
+                inlineClassName: 'highlighted-code-inline',
+              },
+            },
+          ]
+        );
+        decorationsRef.current = newDecorations;
+
+        // Reveal the highlighted line
         editorRef.current.revealLineInCenter(range.start + 1);
+      }
+    } else if (editorRef.current && !highlightedBlockId) {
+      // Clear decorations when nothing is highlighted
+      if (decorationsRef.current.length > 0) {
+        editorRef.current.deltaDecorations(decorationsRef.current, []);
+        decorationsRef.current = [];
       }
     }
   }, [highlightedBlockId, blockCodeMap, editorMode]);
@@ -176,7 +218,7 @@ export default function CodePanel({
       const response = await explainCode(localCode, language as any);
       setAiResponse(response);
     } catch (error) {
-      setAiResponse({ content: 'Failed to get explanation', type: 'error' });
+      setAiResponse({ content: 'Failed to get explanation from AI service', type: 'error' });
     } finally {
       setIsAiLoading(false);
     }
@@ -188,8 +230,13 @@ export default function CodePanel({
     try {
       const response = await optimizeCode(localCode, language as any);
       setAiResponse(response);
+
+      // If optimization includes code, offer to apply it
+      if (response.code) {
+        showToast.success('Code optimized! Review in AI tab');
+      }
     } catch (error) {
-      setAiResponse({ content: 'Failed to optimize', type: 'error' });
+      setAiResponse({ content: 'Failed to optimize code', type: 'error' });
     } finally {
       setIsAiLoading(false);
     }
@@ -202,8 +249,12 @@ export default function CodePanel({
     try {
       const response = await convertCode(localCode, language as any, toLang);
       setAiResponse(response);
+
+      if (response.code) {
+        showToast.success(`Converted to ${toLang}! Review in AI tab`);
+      }
     } catch (error) {
-      setAiResponse({ content: 'Failed to convert', type: 'error' });
+      setAiResponse({ content: 'Failed to convert code', type: 'error' });
     } finally {
       setIsAiLoading(false);
     }
@@ -212,6 +263,7 @@ export default function CodePanel({
   const handleCopyCode = () => {
     navigator.clipboard.writeText(localCode);
     setCopied(true);
+    showToast.success('Code copied to clipboard');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -260,7 +312,7 @@ export default function CodePanel({
       <div className="relative">
         <button
           onClick={handleTogglePanel}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-50 p-2 bg-surface border border-white/10 border-l-0 rounded-r-md text-white/60 hover:text-neon-cyan hover:bg-surface/80 transition-all backdrop-blur-sm"
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-50 p-2 bg-surface border border-white/10 border-l-0 rounded-r-md text-white/60 hover:text-neon-cyan hover:bg-surface/80 transition-all backdrop-blur-sm shadow-lg"
           title="Open code panel"
         >
           <PanelRight size={16} />
@@ -278,12 +330,12 @@ export default function CodePanel({
       {onResize && (
         <div
           onMouseDown={onResize}
-          className="absolute left-0 top-0 h-full w-1 cursor-ew-resize bg-white/5 hover:bg-neon-cyan/40 transition"
+          className="absolute left-0 top-0 h-full w-1 cursor-ew-resize bg-white/5 hover:bg-neon-cyan/40 transition z-50"
         />
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-white/10">
+      <div className="flex items-center justify-between p-3 border-b border-white/10 bg-surface/50 backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <div className="relative">
             <select
@@ -298,7 +350,7 @@ export default function CodePanel({
               ))}
             </select>
             <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white/50">
-              <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="10" height="6" viewBox="0 0 10 6" fill="none">
                 <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
@@ -307,23 +359,35 @@ export default function CodePanel({
           <button
             onClick={handleToggleEditorMode}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${editorMode === 'edit'
-              ? 'bg-neon-cyan/20 text-neon-cyan hover:bg-neon-cyan/30'
-              : 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'
+                ? 'bg-neon-cyan/20 text-neon-cyan hover:bg-neon-cyan/30'
+                : 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'
               }`}
             title={editorMode === 'edit' ? 'Switch to View Mode' : 'Switch to Edit Mode'}
           >
-            {editorMode === 'edit' ? <EyeOff size={12} /> : <Edit size={12} />}
+            {editorMode === 'edit' ? <Edit size={12} /> : <EyeOff size={12} />}
             {editorMode === 'edit' ? 'Editing' : 'Viewing'}
           </button>
+
+          {editorMode === 'edit' && parseResult.hasChanges && (
+            <button
+              onClick={handleSyncToBlocks}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-neon-purple/20 text-neon-purple hover:bg-neon-purple/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Sync code changes to canvas blocks"
+            >
+              <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+              Sync ({parseResult.updates.length})
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={handleCopyCode}
             className="p-1.5 rounded-md text-white/50 hover:text-neon-cyan hover:bg-white/5 transition-all duration-200"
-            title="Copy Code"
+            title="Copy code to clipboard"
           >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
           </button>
 
           <button
@@ -337,18 +401,21 @@ export default function CodePanel({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-white/10">
+      <div className="flex border-b border-white/10 bg-surface/30">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-all duration-200 relative ${activeTab === tab.id
-              ? 'text-neon-cyan'
-              : 'text-white/50 hover:text-white/80'
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-all duration-200 relative ${activeTab === tab.id ? 'text-neon-cyan' : 'text-white/50 hover:text-white/80'
               }`}
           >
             {tab.icon}
             {tab.label}
+            {tab.id === 'console' && consoleOutput.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-neon-cyan/20 text-neon-cyan text-[10px] rounded-full">
+                {consoleOutput.length}
+              </span>
+            )}
             {activeTab === tab.id && (
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-neon-cyan to-neon-purple" />
             )}
@@ -362,8 +429,17 @@ export default function CodePanel({
         {activeTab === 'code' && (
           <div className="h-full relative">
             {editorMode === 'edit' && (
-              <div className="absolute top-3 right-3 z-10 px-2 py-1 bg-neon-cyan/20 text-neon-cyan text-xs font-medium rounded-md">
-                Editing Mode
+              <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+                <div className="px-2 py-1 bg-neon-cyan/20 text-neon-cyan text-xs font-medium rounded-md flex items-center gap-1">
+                  <Edit size={10} />
+                  Editing Mode
+                </div>
+                {parseResult.hasChanges && (
+                  <div className="px-2 py-1 bg-warning/20 text-warning text-xs font-medium rounded-md flex items-center gap-1">
+                    <AlertCircle size={10} />
+                    Unsaved Changes
+                  </div>
+                )}
               </div>
             )}
             {editorMode === 'view' && (
@@ -380,7 +456,7 @@ export default function CodePanel({
                 readOnly: editorMode === 'view',
                 minimap: { enabled: false },
                 fontSize: 13,
-                fontFamily: "'JetBrains Mono', monospace",
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
                 lineNumbers: 'on',
                 scrollBeyondLastLine: false,
                 wordWrap: 'on',
@@ -402,7 +478,7 @@ export default function CodePanel({
                 suggestOnTriggerCharacters: true,
                 acceptSuggestionOnEnter: 'on',
                 tabCompletion: 'on',
-                wordBasedSuggestions: true,
+                wordBasedSuggestions: 'currentDocument',
               }}
             />
           </div>
@@ -416,7 +492,7 @@ export default function CodePanel({
               <button
                 onClick={handleExplain}
                 disabled={isAiLoading}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-purple/20 text-neon-purple text-xs font-medium hover:bg-neon-purple/30 transition-all duration-200 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-purple/20 text-neon-purple text-xs font-medium hover:bg-neon-purple/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <MessageSquare size={14} />
                 Explain Code
@@ -424,7 +500,7 @@ export default function CodePanel({
               <button
                 onClick={handleOptimize}
                 disabled={isAiLoading}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-cyan/20 text-neon-cyan text-xs font-medium hover:bg-neon-cyan/30 transition-all duration-200 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-cyan/20 text-neon-cyan text-xs font-medium hover:bg-neon-cyan/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Wand2 size={14} />
                 Optimize
@@ -432,10 +508,10 @@ export default function CodePanel({
               <button
                 onClick={handleConvert}
                 disabled={isAiLoading}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-gold/20 text-neon-gold text-xs font-medium hover:bg-neon-gold/30 transition-all duration-200 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-gold/20 text-neon-gold text-xs font-medium hover:bg-neon-gold/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ArrowRightLeft size={14} />
-                Convert {language === 'javascript' ? 'to Python' : 'to JS'}
+                Convert to {language === 'javascript' ? 'Python' : 'JavaScript'}
               </button>
             </div>
 
@@ -443,30 +519,48 @@ export default function CodePanel({
             <div className="flex-1 overflow-y-auto p-4">
               {isAiLoading ? (
                 <div className="flex flex-col items-center justify-center h-full text-white/50">
-                  <Loader2 size={32} className="animate-spin mb-2 text-neon-cyan" />
-                  <span className="text-sm">Analyzing...</span>
+                  <Loader2 size={32} className="animate-spin mb-3 text-neon-cyan" />
+                  <span className="text-sm">Analyzing your code...</span>
+                  <span className="text-xs text-white/30 mt-1">This may take a moment</span>
                 </div>
               ) : aiResponse ? (
-                <div className="prose prose-invert prose-sm max-w-none">
+                <div className="space-y-4">
                   <div
-                    className="text-white/80 text-sm leading-relaxed whitespace-pre-wrap"
+                    className="prose prose-invert prose-sm max-w-none text-white/80 text-sm leading-relaxed"
                     dangerouslySetInnerHTML={{
                       __html: aiResponse.content
-                        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-neon-cyan">$1</strong>')
-                        .replace(/`([^`]+)`/g, '<code class="bg-white/10 px-1 rounded text-neon-gold">$1</code>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-neon-cyan font-semibold">$1</strong>')
+                        .replace(/`([^`]+)`/g, '<code class="bg-white/10 px-1.5 py-0.5 rounded text-neon-gold font-mono text-xs">$1</code>')
                         .replace(/• /g, '<br/>• ')
-                        .replace(/\n/g, '<br/>')
+                        .replace(/\n\n/g, '<br/><br/>')
+                        .replace(/\n/g, '<br/>'),
                     }}
                   />
+                  {aiResponse.code && (
+                    <div className="mt-4 border border-white/10 rounded-lg overflow-hidden">
+                      <div className="bg-white/5 px-3 py-2 flex items-center justify-between border-b border-white/10">
+                        <span className="text-xs text-white/60 font-medium">Generated Code</span>
+                        <button
+                          onClick={handleApplyAiCode}
+                          className="px-2 py-1 text-xs bg-neon-cyan/20 text-neon-cyan rounded hover:bg-neon-cyan/30 transition-all"
+                        >
+                          Apply Code
+                        </button>
+                      </div>
+                      <pre className="p-3 bg-black/20 text-xs overflow-x-auto">
+                        <code className="text-white/80">{aiResponse.code}</code>
+                      </pre>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center">
                   <Sparkles size={40} className="text-neon-purple/50 mb-3" />
-                  <p className="text-white/50 text-sm">
-                    Click an action above to get AI assistance
+                  <p className="text-white/50 text-sm font-medium">
+                    AI-Powered Code Assistant
                   </p>
-                  <p className="text-white/30 text-xs mt-1">
-                    Get explanations, optimizations, and conversions
+                  <p className="text-white/30 text-xs mt-2 max-w-xs">
+                    Get explanations, optimizations, and language conversions powered by AI
                   </p>
                 </div>
               )}
@@ -482,11 +576,11 @@ export default function CodePanel({
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Terminal size={40} className="text-white/20 mb-3" />
-                <p className="text-white/40 text-sm">
-                  Console output will appear here
+                <p className="text-white/40 text-sm font-medium">
+                  Console Output
                 </p>
-                <p className="text-white/30 text-xs mt-1">
-                  Click "Run" to execute your code
+                <p className="text-white/30 text-xs mt-2 max-w-xs">
+                  Execution results and logs will appear here when you run your code
                 </p>
               </div>
             )}
@@ -496,21 +590,21 @@ export default function CodePanel({
         {/* Preview Tab */}
         {activeTab === 'preview' && (
           <div className="h-full flex flex-col">
-            <div className="p-4 border-b border-white/10">
-              <h4 className="text-white/80 text-sm font-medium mb-2">Live Preview</h4>
+            <div className="p-4 border-b border-white/10 bg-surface/30">
+              <h4 className="text-white/80 text-sm font-semibold mb-1">Live Preview</h4>
               <p className="text-white/40 text-xs">
-                View the output of your code in real-time
+                View real-time output of your code execution
               </p>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <div className="border border-white/10 rounded-lg p-4 min-h-[200px] bg-black/20">
-                <div className="flex items-center justify-center h-full text-center">
-                  <Eye size={32} className="text-white/20 mx-auto mb-3" />
-                  <p className="text-white/40 text-sm">
-                    Preview for React/UI components
+              <div className="border border-white/10 rounded-lg p-6 min-h-[200px] bg-black/20">
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <Eye size={32} className="text-white/20 mb-3" />
+                  <p className="text-white/40 text-sm font-medium">
+                    Visual Preview
                   </p>
-                  <p className="text-white/30 text-xs mt-1">
-                    Works with DOM manipulation and console output
+                  <p className="text-white/30 text-xs mt-2 max-w-xs">
+                    Real-time preview for UI components and DOM manipulation
                   </p>
                 </div>
               </div>
@@ -520,16 +614,23 @@ export default function CodePanel({
       </div>
 
       {/* Footer */}
-      <div className="p-2 border-t border-white/10 flex items-center justify-between text-xs text-white/40">
+      <div className="p-2 border-t border-white/10 bg-surface/30 flex items-center justify-between text-xs text-white/40">
         <div className="flex items-center gap-4">
-          <span>{blocks.length} blocks</span>
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-neon-cyan"></span>
+            {blocks.length} blocks
+          </span>
           <span>{localCode.split('\n').length} lines</span>
-          <span className={`px-1.5 py-0.5 rounded ${editorMode === 'edit' ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-white/5'}`}>
+          <span
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${editorMode === 'edit' ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-white/5 text-white/60'
+              }`}
+          >
             {editorMode === 'edit' ? '✏️ Editing' : '👁️ Viewing'}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px]">Ctrl+S to save</span>
+        <div className="flex items-center gap-3 text-[10px]">
+          <span>Ctrl+S to save</span>
+          {editorMode === 'view' && <span>Double-click to edit</span>}
         </div>
       </div>
     </div>

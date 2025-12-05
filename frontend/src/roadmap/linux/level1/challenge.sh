@@ -1,0 +1,23 @@
+#!/bin/bash
+echo "🐧 Starting Level 1 Challenge..."
+
+# This script will guide you through the tasks
+echo "1. First, find out where you are in the file system:"
+echo "   Command: pwd"
+echo ""
+echo "2. See what's in your current directory:"
+echo "   Command: ls"
+echo ""
+echo "3. Create a new directory called 'practice':"
+echo "   Command: mkdir practice"
+echo ""
+echo "4. Move into the practice directory:"
+echo "   Command: cd practice"
+echo ""
+echo "5. Create a file called 'hello.txt':"
+echo "   Command: touch hello.txt"
+echo ""
+echo "6. Verify the file was created:"
+echo "   Command: ls"
+echo ""
+echo "Now try these commands yourself in the terminal!"

@@ -422,6 +422,164 @@ export const BLOCK_DEFINITIONS: BlockDefinition[] = [
             ruby: (p) => `content = File.read("${p.path || 'file.txt'}")`,
         }
     },
+
+    // === HTML BLOCKS ===
+    {
+        id: 'html-element',
+        type: 'html-element',
+        name: 'HTML Element',
+        category: 'html',
+        icon: Layout,
+        description: 'Create an HTML element',
+        inputs: [
+            { id: 'tag', type: 'input', dataType: 'string', label: 'Tag' },
+            { id: 'content', type: 'input', dataType: 'string', label: 'Content' },
+        ],
+        outputs: [
+            { id: 'html', type: 'output', dataType: 'string', label: 'HTML' },
+        ],
+        defaultValue: { tag: 'div', content: 'Hello World' },
+        codeTemplates: {
+            html: (p) => `<${p.tag || 'div'}>${p.content || 'Hello World'}</${p.tag || 'div'}>`,
+        }
+    },
+    {
+        id: 'html-heading',
+        type: 'html-heading',
+        name: 'Heading',
+        category: 'html',
+        icon: Type,
+        description: 'Create a heading (h1-h6)',
+        inputs: [
+            { id: 'level', type: 'input', dataType: 'number', label: 'Level (1-6)' },
+            { id: 'text', type: 'input', dataType: 'string', label: 'Text' },
+        ],
+        outputs: [
+            { id: 'html', type: 'output', dataType: 'string', label: 'HTML' },
+        ],
+        defaultValue: { level: '1', text: 'My Heading' },
+        codeTemplates: {
+            html: (p) => `<h${p.level || '1'}>${p.text || 'My Heading'}</h${p.level || '1'}>`,
+        }
+    },
+    {
+        id: 'html-paragraph',
+        type: 'html-paragraph',
+        name: 'Paragraph',
+        category: 'html',
+        icon: FileText,
+        description: 'Create a paragraph',
+        inputs: [
+            { id: 'text', type: 'input', dataType: 'string', label: 'Text' },
+        ],
+        outputs: [
+            { id: 'html', type: 'output', dataType: 'string', label: 'HTML' },
+        ],
+        defaultValue: { text: 'This is a paragraph.' },
+        codeTemplates: {
+            html: (p) => `<p>${p.text || 'This is a paragraph.'}</p>`,
+        }
+    },
+    {
+        id: 'html-link',
+        type: 'html-link',
+        name: 'Link',
+        category: 'html',
+        icon: Globe,
+        description: 'Create a hyperlink',
+        inputs: [
+            { id: 'href', type: 'input', dataType: 'string', label: 'URL' },
+            { id: 'text', type: 'input', dataType: 'string', label: 'Link Text' },
+        ],
+        outputs: [
+            { id: 'html', type: 'output', dataType: 'string', label: 'HTML' },
+        ],
+        defaultValue: { href: 'https://example.com', text: 'Click here' },
+        codeTemplates: {
+            html: (p) => `<a href="${p.href || 'https://example.com'}">${p.text || 'Click here'}</a>`,
+        }
+    },
+    {
+        id: 'html-image',
+        type: 'html-image',
+        name: 'Image',
+        category: 'html',
+        icon: Image,
+        description: 'Insert an image',
+        inputs: [
+            { id: 'src', type: 'input', dataType: 'string', label: 'Image URL' },
+            { id: 'alt', type: 'input', dataType: 'string', label: 'Alt Text' },
+        ],
+        outputs: [
+            { id: 'html', type: 'output', dataType: 'string', label: 'HTML' },
+        ],
+        defaultValue: { src: 'image.jpg', alt: 'Description' },
+        codeTemplates: {
+            html: (p) => `<img src="${p.src || 'image.jpg'}" alt="${p.alt || 'Description'}">`,
+        }
+    },
+
+    // === CSS BLOCKS ===
+    {
+        id: 'css-style',
+        type: 'css-style',
+        name: 'CSS Style',
+        category: 'css',
+        icon: Square,
+        description: 'Create a CSS style rule',
+        inputs: [
+            { id: 'selector', type: 'input', dataType: 'string', label: 'Selector' },
+            { id: 'property', type: 'input', dataType: 'string', label: 'Property' },
+            { id: 'value', type: 'input', dataType: 'string', label: 'Value' },
+        ],
+        outputs: [
+            { id: 'css', type: 'output', dataType: 'string', label: 'CSS' },
+        ],
+        defaultValue: { selector: '.my-class', property: 'color', value: 'blue' },
+        codeTemplates: {
+            css: (p) => `${p.selector || '.my-class'} {\n  ${p.property || 'color'}: ${p.value || 'blue'};\n}`,
+        }
+    },
+    {
+        id: 'css-color',
+        type: 'css-color',
+        name: 'Color',
+        category: 'css',
+        icon: Square,
+        description: 'Set text or background color',
+        inputs: [
+            { id: 'selector', type: 'input', dataType: 'string', label: 'Selector' },
+            { id: 'color', type: 'input', dataType: 'string', label: 'Color' },
+            { id: 'type', type: 'input', dataType: 'string', label: 'Type (color/background)' },
+        ],
+        outputs: [
+            { id: 'css', type: 'output', dataType: 'string', label: 'CSS' },
+        ],
+        defaultValue: { selector: 'h1', color: 'blue', type: 'color' },
+        codeTemplates: {
+            css: (p) => `${p.selector || 'h1'} {\n  ${p.type || 'color'}: ${p.color || 'blue'};\n}`,
+        }
+    },
+    {
+        id: 'css-font',
+        type: 'css-font',
+        name: 'Font Style',
+        category: 'css',
+        icon: Type,
+        description: 'Set font properties',
+        inputs: [
+            { id: 'selector', type: 'input', dataType: 'string', label: 'Selector' },
+            { id: 'size', type: 'input', dataType: 'string', label: 'Font Size' },
+            { id: 'family', type: 'input', dataType: 'string', label: 'Font Family' },
+        ],
+        outputs: [
+            { id: 'css', type: 'output', dataType: 'string', label: 'CSS' },
+        ],
+        defaultValue: { selector: 'p', size: '16px', family: 'Arial' },
+        codeTemplates: {
+            css: (p) => `${p.selector || 'p'} {\n  font-size: ${p.size || '16px'};\n  font-family: ${p.family || 'Arial'};\n}`,
+        }
+    },
 ];
 
 // Helper to get block by type

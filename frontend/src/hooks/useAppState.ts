@@ -150,7 +150,13 @@ export default function useAppState() {
 
     const handleCodeChange = useCallback((newCode: string) => {
         setEditedCode(newCode);
-        // Add logic here to update blocks based on code changes
+
+        // Parse the code to extract block value changes
+        // We'll do this with a debounce to avoid too many updates
+        // For now, we'll parse immediately but could add debouncing later
+
+        // Note: Actual parsing will be done in CodePanel with useCodeParser
+        // This just stores the edited code
     }, []);
 
     // Toggle Handlers
