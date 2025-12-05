@@ -1,0 +1,3 @@
+gemini:
+  apiKey: "AIzaSyAEA3pY-TgV-6opSfi8PADpR1Gc8gbUwJU"
+  model: "gemini-2.5-flash"

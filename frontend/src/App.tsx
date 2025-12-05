@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastContainer } from './components/Toast';
 import AppLayout from './Layout/AppLayout';
@@ -14,9 +14,20 @@ import OnboardingPage from './components/OnboardingPage';
 import RoadmapPage from './components/RoadmapPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import useAppState from './hooks/useAppState';
+import SqlAnalyzerPage from './components/SqlAnalyzer/SqlAnalyzerPage';
+import DashboardPage from './components/DashboardPage';
+import React, { useEffect } from 'react';
 
-function AppContent() {
+function StudioContent() {
   const appState = useAppState();
+  const [searchParams] = useSearchParams();
+  const mode = searchParams.get('mode');
+
+  useEffect(() => {
+    if (mode === 'databases') {
+      appState.setActiveGroup('databases');
+    }
+  }, [mode]);
 
   return (
     <AppLayout
@@ -40,7 +51,7 @@ function AppContent() {
       canRedo={appState.canRedo}
 
       // Code Panel Props
-      codePanelProps={{
+      codePanelProps={appState.activeGroup === 'databases' ? undefined : {
         code: appState.code,
         language: appState.language,
         onLanguageChange: appState.setLanguage,
@@ -68,38 +79,46 @@ function AppContent() {
             onToggle={appState.toggleCategorySelector}
           />
 
-          {/* Middle Sidebar - Block Library */}
-          <SidebarBlockLibrary
-            selectedGroup={appState.activeGroup}
-            onDragStart={() => { }}
-            width={appState.rightWidth}
-            onResize={appState.resizeRight}
-            isOpen={appState.isBlockLibraryOpen}
-            onToggle={appState.toggleBlockLibrary}
-          />
+          {appState.activeGroup === 'databases' ? (
+            <div className="flex-1 h-full overflow-hidden relative">
+              <SqlAnalyzerPage />
+            </div>
+          ) : (
+            <>
+              {/* Middle Sidebar - Block Library */}
+              <SidebarBlockLibrary
+                selectedGroup={appState.activeGroup}
+                onDragStart={() => { }}
+                width={appState.rightWidth}
+                onResize={appState.resizeRight}
+                isOpen={appState.isBlockLibraryOpen}
+                onToggle={appState.toggleBlockLibrary}
+              />
 
-          {/* Main Canvas */}
-          <CanvasManager
-            blocks={appState.blocks}
-            connections={appState.connections}
-            selection={appState.selection}
-            hoveredBlockId={appState.hoveredBlockId}
-            highlightedBlockId={appState.highlightedBlockId}
-            onDropBlock={appState.handleDropBlock}
-            onBlockSelect={appState.selectBlock}
-            onBlockMove={appState.updateBlockPosition}
-            onBlockHover={appState.setHoveredBlock}
-            onBlockValueChange={appState.updateBlockValue}
-            onConnectionCreate={appState.addConnection}
-            onConnectionRemove={appState.removeConnection}
-            onCanvasClick={appState.clearSelection}
-            onDeleteSelected={appState.deleteSelected}
-            onReset={appState.resetCanvas}
-            canUndo={appState.canUndo}
-            canRedo={appState.canRedo}
-            onUndo={appState.undo}
-            onRedo={appState.redo}
-          />
+              {/* Main Canvas */}
+              <CanvasManager
+                blocks={appState.blocks}
+                connections={appState.connections}
+                selection={appState.selection}
+                hoveredBlockId={appState.hoveredBlockId}
+                highlightedBlockId={appState.highlightedBlockId}
+                onDropBlock={appState.handleDropBlock}
+                onBlockSelect={appState.selectBlock}
+                onBlockMove={appState.updateBlockPosition}
+                onBlockHover={appState.setHoveredBlock}
+                onBlockValueChange={appState.updateBlockValue}
+                onConnectionCreate={appState.addConnection}
+                onConnectionRemove={appState.removeConnection}
+                onCanvasClick={appState.clearSelection}
+                onDeleteSelected={appState.deleteSelected}
+                onReset={appState.resetCanvas}
+                canUndo={appState.canUndo}
+                canRedo={appState.canRedo}
+                onUndo={appState.undo}
+                onRedo={appState.redo}
+              />
+            </>
+          )}
         </>
       }
     />
@@ -123,7 +142,16 @@ function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <AppContent />
+                <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/studio"
+            element={
+              <ProtectedRoute>
+                <StudioContent />
               </ProtectedRoute>
             }
           />
