@@ -46,6 +46,7 @@ type EditorMode = 'edit' | 'view';
 
 const LANGUAGES: { value: Language; label: string }[] = [
   { value: 'javascript', label: 'JavaScript' },
+  { value: 'typescript', label: 'TypeScript' },
   { value: 'python', label: 'Python' },
   { value: 'java', label: 'Java' },
   { value: 'c', label: 'C' },
@@ -82,6 +83,13 @@ export default function CodePanel({
 
   // Parse code for block updates
   const parseResult = useCodeParser(localCode, blocks, blockCodeMap, language);
+
+  // Automatically show the Console tab whenever new output arrives
+  useEffect(() => {
+    if (consoleOutput.length > 0 && consoleOutput.some(line => line.includes('▶') || line.includes('❌') || line.includes('✅'))) {
+      setActiveTab('console');
+    }
+  }, [consoleOutput]);
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'code', label: 'Code', icon: <Code size={14} /> },
@@ -151,6 +159,11 @@ export default function CodePanel({
         setLocalCode(newCode);
       }
     });
+
+    // Set initial read-only state
+    if (editorMode === 'view') {
+      editor.updateOptions({ readOnly: true });
+    }
   };
 
   // Highlight code range when block is highlighted in view mode
@@ -258,21 +271,13 @@ export default function CodePanel({
     const newMode = editorMode === 'edit' ? 'view' : 'edit';
     setEditorMode(newMode);
 
+    if (editorRef.current) {
+      editorRef.current.updateOptions({ readOnly: newMode === 'view' });
+    }
+
+    // When switching to view mode, clear any hover states
     if (newMode === 'view') {
-      // Switching to view mode - apply changes
-      if (localCode !== code) {
-        onCodeChange?.(localCode);
-        showToast.info('Code changes applied');
-      }
-      if (editorRef.current) {
-        editorRef.current.updateOptions({ readOnly: true });
-      }
-    } else {
-      // Switching to edit mode
-      if (editorRef.current) {
-        editorRef.current.updateOptions({ readOnly: false });
-      }
-      showToast.info('Edit mode enabled - modify code freely');
+      onCodeLineHover(null);
     }
   };
 
@@ -280,39 +285,24 @@ export default function CodePanel({
     onToggle?.(!isOpen);
   };
 
-  // Sync code changes to blocks
-  const handleSyncToBlocks = () => {
-    if (!onBlockValueChange || !parseResult.hasChanges) return;
-
-    setIsSyncing(true);
-
-    try {
-      // Apply all updates
-      parseResult.updates.forEach(update => {
-        onBlockValueChange(update.blockId, update.key, update.value);
-      });
-
-      showToast.success(
-        `Synced ${parseResult.updates.length} block${parseResult.updates.length > 1 ? 's' : ''} to canvas`
-      );
-
-      // Update the main code
-      onCodeChange?.(localCode);
-
-    } catch (error) {
-      showToast.error('Failed to sync changes to blocks');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  // Apply AI-generated code
-  const handleApplyAiCode = () => {
-    if (aiResponse?.code) {
-      setLocalCode(aiResponse.code);
-      onCodeChange?.(aiResponse.code);
-      setEditorMode('view');
-      showToast.success('AI code applied successfully');
+  // Helper to format console output lines
+  const formatConsoleLine = (line: string, index: number) => {
+    if (line.startsWith('▶')) {
+      return <div key={index} className="text-neon-cyan font-semibold py-1">{line}</div>;
+    } else if (line.startsWith('✅')) {
+      return <div key={index} className="text-green-400 font-semibold py-1">{line}</div>;
+    } else if (line.startsWith('❌')) {
+      return <div key={index} className="text-red-400 font-semibold py-1">{line}</div>;
+    } else if (line.startsWith('⚠️')) {
+      return <div key={index} className="text-yellow-400 font-semibold py-1">{line}</div>;
+    } else if (line.startsWith('---')) {
+      return <div key={index} className="text-white/30 border-t border-white/10 pt-2 mt-2">{line}</div>;
+    } else if (line.startsWith('>')) {
+      return <div key={index} className="text-yellow-300 py-0.5 font-mono">{line}</div>;
+    } else if (line.trim() === '') {
+      return <div key={index} className="py-0.5">&nbsp;</div>;
+    } else {
+      return <div key={index} className="text-white/70 py-0.5">{line}</div>;
     }
   };
 
@@ -452,9 +442,14 @@ export default function CodePanel({
                 )}
               </div>
             )}
+            {editorMode === 'view' && (
+              <div className="absolute top-3 right-3 z-10 px-2 py-1 bg-neon-purple/20 text-neon-purple text-xs font-medium rounded-md">
+                View Mode
+              </div>
+            )}
             <Editor
               height="100%"
-              language={language === 'cpp' ? 'cpp' : language === 'c' ? 'c' : language}
+              language={getEditorLanguage(language)}
               value={localCode}
               onMount={handleEditorMount}
               options={{
@@ -577,27 +572,7 @@ export default function CodePanel({
         {activeTab === 'console' && (
           <div className="h-full overflow-y-auto p-4 font-mono text-sm bg-black/20">
             {consoleOutput.length > 0 ? (
-              <div className="space-y-1">
-                {consoleOutput.map((line, index) => (
-                  <div
-                    key={index}
-                    className={`py-0.5 ${line.startsWith('▶')
-                        ? 'text-neon-cyan font-medium'
-                        : line.startsWith('✅')
-                          ? 'text-green-400'
-                          : line.startsWith('❌')
-                            ? 'text-red-400'
-                            : line.startsWith('>')
-                              ? 'text-yellow-300'
-                              : line.startsWith('---')
-                                ? 'text-white/30 border-t border-white/10 pt-2 mt-2'
-                                : 'text-white/70'
-                      }`}
-                  >
-                    {line}
-                  </div>
-                ))}
-              </div>
+              consoleOutput.map((line, index) => formatConsoleLine(line, index))
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Terminal size={40} className="text-white/20 mb-3" />
@@ -660,4 +635,19 @@ export default function CodePanel({
       </div>
     </div>
   );
+}
+
+// Helper function to map custom language to Monaco language
+function getEditorLanguage(language: Language): string {
+  const mapping: Record<Language, string> = {
+    javascript: 'javascript',
+    typescript: 'typescript',
+    python: 'python',
+    java: 'java',
+    c: 'c',
+    cpp: 'cpp',
+    ruby: 'ruby',
+    sql: 'sql'
+  };
+  return mapping[language] || 'javascript';
 }

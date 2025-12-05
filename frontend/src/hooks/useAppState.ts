@@ -33,26 +33,104 @@ export default function useAppState() {
     // Handlers
     const handleRun = useCallback(async () => {
         setIsRunning(true);
+
+        // Prefer the code the user is editing; fall back to generated code
+        const sourceCode = editedCode.trim().length > 0 ? editedCode : code;
+
+        // Reset console and show running status
         setConsoleOutput(['▶ Running code...', '']);
+
+        // Basic syntax checking for JavaScript / TypeScript
+        if (language === 'javascript' || language === 'typescript') {
+            try {
+                // Parse only, do not execute
+                // eslint-disable-next-line no-new-func
+                new Function(sourceCode);
+            } catch (err) {
+                const error = err as Error;
+                setConsoleOutput([
+                    '❌ Syntax error in your code',
+                    '',
+                    error.message,
+                ]);
+                setIsRunning(false);
+                return;
+            }
+        }
 
         setTimeout(() => {
             const output = ['✅ Execution complete!', '', '--- Output ---'];
 
-            const printRegex = language === 'javascript'
-                ? /console\.log\((.+?)\)/g
-                : /print\((.+?)\)/g;
+            let printed = false;
 
-            let match;
-            while ((match = printRegex.exec(code)) !== null) {
-                output.push(`> ${match[1].replace(/["']/g, '')}`);
+            const pushClean = (raw: string) => {
+                const cleaned = raw
+                    .replace(/["'`]/g, '')
+                    .replace(/;$/, '')
+                    .trim();
+                if (cleaned) {
+                    output.push(`> ${cleaned}`);
+                    printed = true;
+                }
+            };
+
+            if (language === 'javascript' || language === 'typescript') {
+                const regex = /console\.log\(([^)]*)\)/g;
+                let match;
+                while ((match = regex.exec(sourceCode)) !== null) {
+                    pushClean(match[1]);
+                }
+            } else if (language === 'python') {
+                const regex = /print\(([^)]*)\)/g;
+                let match;
+                while ((match = regex.exec(sourceCode)) !== null) {
+                    pushClean(match[1]);
+                }
+            } else if (language === 'java') {
+                const regex = /System\.out\.println\(([^)]*)\)/g;
+                let match;
+                while ((match = regex.exec(sourceCode)) !== null) {
+                    pushClean(match[1]);
+                }
+            } else if (language === 'c') {
+                const regex = /printf\(([^)]*)\)/g;
+                let match;
+                while ((match = regex.exec(sourceCode)) !== null) {
+                    pushClean(match[1]);
+                }
+            } else if (language === 'cpp') {
+                const regex = /std::cout\s*<<\s*([^;]+);/g;
+                let match;
+                while ((match = regex.exec(sourceCode)) !== null) {
+                    pushClean(match[1]);
+                }
+            } else if (language === 'ruby') {
+                const regex = /(?:puts|print)\s+(.+)/g;
+                let match;
+                while ((match = regex.exec(sourceCode)) !== null) {
+                    pushClean(match[1]);
+                }
             }
 
-            if (output.length === 3) output.push('No output generated.');
+            if (!printed) {
+                // Fallback: echo the user's code so console isn't empty
+                const lines = sourceCode.split('\n');
+                if (lines.length > 0) {
+                    lines.forEach((line) => {
+                        const cleanedLine = line.trim();
+                        if (cleanedLine.length > 0) {
+                            output.push(`> ${cleanedLine}`);
+                        }
+                    });
+                } else {
+                    output.push('No output generated. Add a Print block or use print()/console.log().');
+                }
+            }
 
             setConsoleOutput(output);
             setIsRunning(false);
         }, 1000);
-    }, [code, language]);
+    }, [code, editedCode, language]);
 
     const handleCodeLineHover = useCallback((line: number | null) => {
         if (line === null) return blockManager.setHighlightedBlock(null);
