@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useState, useRef, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Play,
   Moon,
@@ -14,8 +14,12 @@ import {
   User,
   Loader2,
   Gamepad2,
+  LogOut,
+  Settings,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../hooks/useAuth';
+import showToast from './Toast';
 
 interface NavbarProps {
   projectName: string;
@@ -36,9 +40,28 @@ export default function Navbar({
   onUndo,
   onRedo,
 }: NavbarProps) {
+  const navigate = useNavigate();
   const { isDarkMode, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleExport = (type: 'js' | 'python' | 'react') => {
     const filename = {
@@ -50,6 +73,12 @@ export default function Navbar({
     // In a real app, this would download the actual generated code
     alert(`Exporting as ${filename}`);
     setShowExportMenu(false);
+  };
+
+  const handleLogout = () => {
+    logout();
+    showToast.success('Logged out successfully');
+    navigate('/login');
   };
 
   return (
@@ -77,8 +106,8 @@ export default function Navbar({
         <Link
           to="/games"
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${useLocation().pathname.startsWith('/games')
-              ? 'bg-neon-purple/20 text-neon-purple border border-neon-purple/30'
-              : 'text-white/60 hover:text-neon-purple hover:bg-white/5'
+            ? 'bg-neon-purple/20 text-neon-purple border border-neon-purple/30'
+            : 'text-white/60 hover:text-neon-purple hover:bg-white/5'
             }`}
         >
           <Gamepad2 size={16} />
@@ -179,9 +208,61 @@ export default function Navbar({
         </button>
 
         {/* User Menu */}
-        <button className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center hover:shadow-neon-purple transition-all duration-200">
-          <User size={16} className="text-void" />
-        </button>
+        <div className="relative" ref={userMenuRef}>
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/5 transition-all duration-200"
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
+              <User size={16} className="text-void" />
+            </div>
+            {user && (
+              <span className="text-sm text-white/80 max-w-[100px] truncate hidden md:block">
+                {user.name}
+              </span>
+            )}
+            <ChevronDown size={14} className={`text-white/60 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showUserMenu && (
+            <div className="absolute right-0 top-full mt-2 w-56 py-2 rounded-lg glass-effect border border-white/10 shadow-lg">
+              {/* User Info */}
+              {user && (
+                <div className="px-4 py-3 border-b border-white/10">
+                  <p className="text-sm font-medium text-white">{user.name}</p>
+                  <p className="text-xs text-white/60 truncate">{user.email}</p>
+                  {user.role === 'admin' && (
+                    <span className="inline-block mt-1 px-2 py-0.5 text-[10px] bg-neon-purple/20 text-neon-purple rounded-full">
+                      Admin
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Menu Items */}
+              <button
+                onClick={() => {
+                  setShowUserMenu(false);
+                  navigate('/settings');
+                }}
+                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-white/80 hover:text-neon-cyan hover:bg-white/5 transition-colors"
+              >
+                <Settings size={16} />
+                Settings
+              </button>
+
+              <div className="my-1 border-t border-white/10" />
+
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+              >
+                <LogOut size={16} />
+                Logout
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </nav>
   );

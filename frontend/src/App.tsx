@@ -6,6 +6,13 @@ import CanvasManager from './Layout/CanvasManager';
 import SidebarCategorySelector from './components/SidebarCategorySelector';
 import SidebarBlockLibrary from './components/SidebarBlockLibrary';
 import GamesPage from './components/GamesPage';
+import LoginPage from './components/LoginPage';
+import SignupPage from './components/SignupPage';
+import ForgotPasswordPage from './components/ForgotPasswordPage';
+import ResetPasswordPage from './components/ResetPasswordPage';
+import OnboardingPage from './components/OnboardingPage';
+import RoadmapPage from './components/RoadmapPage';
+import ProtectedRoute from './components/ProtectedRoute';
 import useAppState from './hooks/useAppState';
 
 function AppContent() {
@@ -105,16 +112,47 @@ function App() {
       <BrowserRouter>
         <ToastContainer />
         <Routes>
-          {/* MAIN APP ROUTE */}
-          <Route path="/" element={<AppContent />} />
+          {/* PUBLIC ROUTES */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+          {/* PROTECTED ROUTES */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <AppContent />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/onboarding"
+            element={
+              <ProtectedRoute>
+                <OnboardingPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/roadmap"
+            element={
+              <ProtectedRoute>
+                <RoadmapPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* GAMES ROUTES */}
           <Route path="/games" element={<GamesPage />} />
           <Route path="/games/:language" element={<GamesPage />} />
           <Route path="/games/:language/:level" element={<GamesPage />} />
 
-          {/* CATCH-ALL — Redirect all routes to main page */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* CATCH-ALL — Redirect to login */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     </ThemeProvider>
