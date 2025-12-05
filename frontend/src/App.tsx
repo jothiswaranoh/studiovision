@@ -5,6 +5,7 @@ import AppLayout from './Layout/AppLayout';
 import CanvasManager from './Layout/CanvasManager';
 import SidebarCategorySelector from './components/SidebarCategorySelector';
 import SidebarBlockLibrary from './components/SidebarBlockLibrary';
+import GamesPage from './components/GamesPage';
 import useAppState from './hooks/useAppState';
 
 function AppContent() {
@@ -37,6 +38,7 @@ function AppContent() {
         language: appState.language,
         onLanguageChange: appState.setLanguage,
         onCodeChange: appState.handleCodeChange,
+        onBlockValueChange: appState.updateBlockValue,
         consoleOutput: appState.consoleOutput,
         onCodeLineHover: appState.handleCodeLineHover,
         blocks: appState.blocks,
@@ -105,6 +107,11 @@ function App() {
         <Routes>
           {/* MAIN APP ROUTE */}
           <Route path="/" element={<AppContent />} />
+
+          {/* GAMES ROUTES */}
+          <Route path="/games" element={<GamesPage />} />
+          <Route path="/games/:language" element={<GamesPage />} />
+          <Route path="/games/:language/:level" element={<GamesPage />} />
 
           {/* CATCH-ALL — Redirect all routes to main page */}
           <Route path="*" element={<Navigate to="/" replace />} />
