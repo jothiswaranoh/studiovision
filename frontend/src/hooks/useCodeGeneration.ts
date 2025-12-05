@@ -1,12 +1,27 @@
 import { useMemo } from 'react';
 import { CanvasBlock, Connection } from './useBlocks';
+import { Language } from '../data/blockDefinitions';
 
-export type Language = 'javascript' | 'python';
+export { type Language };
 
 export interface CodeGenerationResult {
     code: string;
     blockCodeMap: Map<string, { start: number; end: number }>;
 }
+
+const getCommentPrefix = (lang: Language) => {
+    switch (lang) {
+        case 'python':
+        case 'ruby':
+            return '#';
+        case 'sql':
+            return '--';
+        case 'html':
+            return '<!--';
+        default:
+            return '//';
+    }
+};
 
 export const useCodeGeneration = (
     blocks: CanvasBlock[],
@@ -15,11 +30,19 @@ export const useCodeGeneration = (
 ): CodeGenerationResult => {
     return useMemo(() => {
         const blockCodeMap = new Map<string, { start: number; end: number }>();
+        const commentPrefix = getCommentPrefix(language);
 
         if (blocks.length === 0) {
-            const defaultCode = language === 'javascript'
-                ? '// Drag blocks from the library to start coding!\n\nfunction main() {\n  // Your visual blocks will generate code here\n}\n\nmain();'
-                : '# Drag blocks from the library to start coding!\n\ndef main():\n    # Your visual blocks will generate code here\n    pass\n\nif __name__ == "__main__":\n    main()';
+            let defaultCode = '';
+            if (language === 'python') {
+                defaultCode = `# Drag blocks from the library to start coding!\n\ndef main():\n    # Your visual blocks will generate code here\n    pass\n\nif __name__ == "__main__":\n    main()`;
+            } else if (language === 'html') {
+                defaultCode = `<!-- Drag blocks from the library to start coding! -->\n\n<!DOCTYPE html>\n<html>\n<body>\n    <!-- Your visual blocks will generate code here -->\n</body>\n</html>`;
+            } else if (language === 'sql') {
+                defaultCode = `-- Drag blocks from the library to start coding!\n\n-- Your visual blocks will generate code here`;
+            } else {
+                defaultCode = `${commentPrefix} Drag blocks from the library to start coding!\n\nfunction main() {\n  ${commentPrefix} Your visual blocks will generate code here\n}\n\nmain();`;
+            }
 
             return { code: defaultCode, blockCodeMap };
         }
@@ -56,13 +79,8 @@ export const useCodeGeneration = (
         const processedBlocks = new Set<string>();
 
         // Add header comment
-        if (language === 'javascript') {
-            codeLines.push('// Generated Code - Visual Programming Platform');
-            codeLines.push('');
-        } else {
-            codeLines.push('# Generated Code - Visual Programming Platform');
-            codeLines.push('');
-        }
+        codeLines.push(`${commentPrefix} Generated Code - Visual Programming Platform`);
+        codeLines.push('');
 
         // Track current line for block mapping
         let currentLine = codeLines.length;
@@ -74,11 +92,15 @@ export const useCodeGeneration = (
             const startLine = currentLine;
 
             // Generate code based on block type and language
-            const template = language === 'javascript'
-                ? block.definition.codeTemplateJS
-                : block.definition.codeTemplatePython;
+            const template = block.definition.codeTemplates[language];
 
-            const generatedCode = template(block.values);
+            let generatedCode = '';
+            if (template) {
+                generatedCode = template(block.values);
+            } else {
+                generatedCode = `${commentPrefix} Block '${block.definition.name}' not supported in ${language}`;
+            }
+
             const lines = generatedCode.split('\n');
 
             lines.forEach((line) => {

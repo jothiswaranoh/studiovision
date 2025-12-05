@@ -11,8 +11,12 @@ import {
   Loader2,
   Copy,
   Check,
+  Edit,
+  EyeOff,
+  PanelRight,
+  PanelRightClose,
 } from 'lucide-react';
-import { Language } from '../hooks/useCodeGeneration';
+import { Language } from '../data/blockDefinitions';
 import { CanvasBlock } from '../hooks/useBlocks';
 import { explainCode, optimizeCode, convertCode, AIResponse } from '../services/aiService';
 
@@ -20,29 +24,52 @@ interface CodePanelProps {
   code: string;
   language: Language;
   onLanguageChange: (lang: Language) => void;
+  onCodeChange?: (code: string) => void;
   consoleOutput: string[];
   onCodeLineHover: (line: number | null) => void;
   blocks: CanvasBlock[];
   blockCodeMap: Map<string, { start: number; end: number }>;
   highlightedBlockId: string | null;
+  width?: number;
+  onResize?: (e: React.MouseEvent) => void;
+  isOpen?: boolean;
+  onToggle?: (isOpen: boolean) => void;
 }
 
 type Tab = 'code' | 'ai' | 'console' | 'preview';
+type EditorMode = 'edit' | 'view';
+
+const LANGUAGES: { value: Language; label: string }[] = [
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'python', label: 'Python' },
+  { value: 'java', label: 'Java' },
+  { value: 'c', label: 'C' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'ruby', label: 'Ruby' },
+  { value: 'sql', label: 'SQL' },
+];
 
 export default function CodePanel({
   code,
   language,
   onLanguageChange,
+  onCodeChange,
   consoleOutput,
   onCodeLineHover,
   blocks,
   blockCodeMap,
   highlightedBlockId,
+  width = 400,
+  onResize,
+  isOpen = true,
+  onToggle,
 }: CodePanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('code');
+  const [editorMode, setEditorMode] = useState<EditorMode>('edit');
   const [aiResponse, setAiResponse] = useState<AIResponse | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [localCode, setLocalCode] = useState(code);
   const editorRef = useRef<any>(null);
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -51,6 +78,11 @@ export default function CodePanel({
     { id: 'console', label: 'Console', icon: <Terminal size={14} /> },
     { id: 'preview', label: 'Preview', icon: <Eye size={14} /> },
   ];
+
+  // Update local code when prop changes
+  useEffect(() => {
+    setLocalCode(code);
+  }, [code]);
 
   // Monaco editor setup
   const handleEditorMount: OnMount = (editor, monaco) => {
@@ -78,6 +110,9 @@ export default function CodePanel({
         'editorLineNumber.foreground': '#64748B',
         'editorLineNumber.activeForeground': '#00FFFF',
         'editorGutter.background': '#0A0A0F',
+        'editorWidget.background': '#1A1A2E',
+        'editorSuggestWidget.background': '#1A1A2E',
+        'editorSuggestWidget.border': '#00FFFF33',
       },
     });
 
@@ -85,19 +120,28 @@ export default function CodePanel({
 
     // Handle line hover for block highlighting
     editor.onMouseMove((e: any) => {
-      if (e.target.position) {
+      if (e.target.position && editorMode === 'view') {
         onCodeLineHover(e.target.position.lineNumber);
       }
     });
 
     editor.onMouseLeave(() => {
-      onCodeLineHover(null);
+      if (editorMode === 'view') {
+        onCodeLineHover(null);
+      }
+    });
+
+    // Handle editor changes
+    editor.onDidChangeModelContent(() => {
+      const newCode = editor.getValue();
+      setLocalCode(newCode);
+      onCodeChange?.(newCode);
     });
   };
 
   // Highlight code range when block is highlighted
   useEffect(() => {
-    if (editorRef.current && highlightedBlockId) {
+    if (editorRef.current && highlightedBlockId && editorMode === 'view') {
       const range = blockCodeMap.get(highlightedBlockId);
       if (range) {
         editorRef.current.setSelection({
@@ -109,14 +153,14 @@ export default function CodePanel({
         editorRef.current.revealLineInCenter(range.start + 1);
       }
     }
-  }, [highlightedBlockId, blockCodeMap]);
+  }, [highlightedBlockId, blockCodeMap, editorMode]);
 
   // AI Actions
   const handleExplain = async () => {
     setIsAiLoading(true);
     setActiveTab('ai');
     try {
-      const response = await explainCode(code, language);
+      const response = await explainCode(localCode, language as any);
       setAiResponse(response);
     } catch (error) {
       setAiResponse({ content: 'Failed to get explanation', type: 'error' });
@@ -129,7 +173,7 @@ export default function CodePanel({
     setIsAiLoading(true);
     setActiveTab('ai');
     try {
-      const response = await optimizeCode(code, language);
+      const response = await optimizeCode(localCode, language as any);
       setAiResponse(response);
     } catch (error) {
       setAiResponse({ content: 'Failed to optimize', type: 'error' });
@@ -143,7 +187,7 @@ export default function CodePanel({
     setActiveTab('ai');
     const toLang = language === 'javascript' ? 'python' : 'javascript';
     try {
-      const response = await convertCode(code, language, toLang);
+      const response = await convertCode(localCode, language as any, toLang);
       setAiResponse(response);
     } catch (error) {
       setAiResponse({ content: 'Failed to convert', type: 'error' });
@@ -153,43 +197,106 @@ export default function CodePanel({
   };
 
   const handleCopyCode = () => {
-    navigator.clipboard.writeText(code);
+    navigator.clipboard.writeText(localCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleToggleEditorMode = () => {
+    const newMode = editorMode === 'edit' ? 'view' : 'edit';
+    setEditorMode(newMode);
+
+    if (newMode === 'view' && editorRef.current) {
+      editorRef.current.updateOptions({ readOnly: true });
+    } else if (editorRef.current) {
+      editorRef.current.updateOptions({ readOnly: false });
+    }
+  };
+
+  const handleTogglePanel = () => {
+    onToggle?.(!isOpen);
+  };
+
+  // When panel is closed
+  if (!isOpen) {
+    return (
+      <div className="relative">
+        <button
+          onClick={handleTogglePanel}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-50 p-2 bg-surface border border-white/10 border-l-0 rounded-r-md text-white/60 hover:text-neon-cyan hover:bg-surface/80 transition-all backdrop-blur-sm"
+          title="Open code panel"
+        >
+          <PanelRight size={16} />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-[400px] min-w-[350px] max-w-[500px] bg-surface border-l border-white/10 flex flex-col">
-      {/* Language Toggle */}
-      <div className="flex items-center justify-between p-2 border-b border-white/10">
-        <div className="flex bg-void/50 rounded-lg p-1">
+    <div
+      className="bg-surface border-l border-white/10 flex flex-col relative"
+      style={{ width }}
+    >
+      {/* Resize Handle */}
+      {onResize && (
+        <div
+          onMouseDown={onResize}
+          className="absolute left-0 top-0 h-full w-1 cursor-ew-resize bg-white/5 hover:bg-neon-cyan/40 transition"
+        />
+      )}
+
+      {/* Header */}
+      <div className="flex items-center justify-between p-3 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <select
+              value={language}
+              onChange={(e) => onLanguageChange(e.target.value as Language)}
+              className="appearance-none bg-white/5 border border-white/10 text-white text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-all cursor-pointer hover:bg-white/10"
+            >
+              {LANGUAGES.map((lang) => (
+                <option key={lang.value} value={lang.value} className="bg-[#1A1A2E] text-white">
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white/50">
+              <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+          </div>
+
           <button
-            onClick={() => onLanguageChange('javascript')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${language === 'javascript'
-              ? 'bg-neon-gold/20 text-neon-gold'
-              : 'text-white/50 hover:text-white/80'
+            onClick={handleToggleEditorMode}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${editorMode === 'edit'
+              ? 'bg-neon-cyan/20 text-neon-cyan hover:bg-neon-cyan/30'
+              : 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'
               }`}
+            title={editorMode === 'edit' ? 'Switch to View Mode' : 'Switch to Edit Mode'}
           >
-            JavaScript
-          </button>
-          <button
-            onClick={() => onLanguageChange('python')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${language === 'python'
-              ? 'bg-success/20 text-success'
-              : 'text-white/50 hover:text-white/80'
-              }`}
-          >
-            Python
+            {editorMode === 'edit' ? <EyeOff size={12} /> : <Edit size={12} />}
+            {editorMode === 'edit' ? 'Editing' : 'Viewing'}
           </button>
         </div>
 
-        <button
-          onClick={handleCopyCode}
-          className="p-1.5 rounded-md text-white/50 hover:text-neon-cyan hover:bg-white/5 transition-all duration-200"
-          title="Copy Code"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopyCode}
+            className="p-1.5 rounded-md text-white/50 hover:text-neon-cyan hover:bg-white/5 transition-all duration-200"
+            title="Copy Code"
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+
+          <button
+            onClick={handleTogglePanel}
+            className="p-1.5 rounded-md text-white/50 hover:text-neon-cyan hover:bg-white/5 transition-all duration-200"
+            title="Collapse panel"
+          >
+            <PanelRightClose size={14} />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -216,14 +323,19 @@ export default function CodePanel({
       <div className="flex-1 overflow-hidden">
         {/* Code Tab */}
         {activeTab === 'code' && (
-          <div className="h-full">
+          <div className="h-full relative">
+            {editorMode === 'edit' && (
+              <div className="absolute top-3 right-3 z-10 px-2 py-1 bg-neon-cyan/20 text-neon-cyan text-xs font-medium rounded-md">
+                Editing Mode
+              </div>
+            )}
             <Editor
               height="100%"
               language={language === 'javascript' ? 'javascript' : 'python'}
-              value={code}
+              value={localCode}
               onMount={handleEditorMount}
               options={{
-                readOnly: true,
+                readOnly: editorMode === 'view',
                 minimap: { enabled: false },
                 fontSize: 13,
                 fontFamily: "'JetBrains Mono', monospace",
@@ -234,6 +346,21 @@ export default function CodePanel({
                 renderLineHighlight: 'all',
                 cursorBlinking: 'smooth',
                 smoothScrolling: true,
+                automaticLayout: true,
+                folding: true,
+                lineDecorationsWidth: 10,
+                scrollbar: {
+                  vertical: 'visible',
+                  horizontal: 'visible',
+                  useShadows: false,
+                },
+                contextmenu: true,
+                formatOnPaste: true,
+                formatOnType: true,
+                suggestOnTriggerCharacters: true,
+                acceptSuggestionOnEnter: 'on',
+                tabCompletion: 'on',
+                wordBasedSuggestions: true,
               }}
             />
           </div>
@@ -296,6 +423,9 @@ export default function CodePanel({
                   <p className="text-white/50 text-sm">
                     Click an action above to get AI assistance
                   </p>
+                  <p className="text-white/30 text-xs mt-1">
+                    Get explanations, optimizations, and conversions
+                  </p>
                 </div>
               )}
             </div>
@@ -304,7 +434,7 @@ export default function CodePanel({
 
         {/* Console Tab */}
         {activeTab === 'console' && (
-          <div className="h-full overflow-y-auto p-4 font-mono text-sm">
+          <div className="h-full overflow-y-auto p-4 font-mono text-sm bg-black/20">
             {consoleOutput.length > 0 ? (
               consoleOutput.map((line, index) => (
                 <div
@@ -312,13 +442,13 @@ export default function CodePanel({
                   className={`py-0.5 ${line.startsWith('▶')
                     ? 'text-neon-cyan'
                     : line.startsWith('✅')
-                      ? 'text-success'
+                      ? 'text-green-400'
                       : line.startsWith('❌')
-                        ? 'text-error'
+                        ? 'text-red-400'
                         : line.startsWith('>')
-                          ? 'text-neon-gold'
+                          ? 'text-yellow-300'
                           : line.startsWith('---')
-                            ? 'text-white/30'
+                            ? 'text-white/30 border-t border-white/10 pt-2 mt-2'
                             : 'text-white/70'
                     }`}
                 >
@@ -341,24 +471,42 @@ export default function CodePanel({
 
         {/* Preview Tab */}
         {activeTab === 'preview' && (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
-              <Eye size={48} className="text-white/20 mx-auto mb-3" />
-              <p className="text-white/40 text-sm">
-                Live preview for React components
+          <div className="h-full flex flex-col">
+            <div className="p-4 border-b border-white/10">
+              <h4 className="text-white/80 text-sm font-medium mb-2">Live Preview</h4>
+              <p className="text-white/40 text-xs">
+                View the output of your code in real-time
               </p>
-              <p className="text-white/30 text-xs mt-1">
-                Coming soon...
-              </p>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <div className="border border-white/10 rounded-lg p-4 min-h-[200px] bg-black/20">
+                <div className="flex items-center justify-center h-full text-center">
+                  <Eye size={32} className="text-white/20 mx-auto mb-3" />
+                  <p className="text-white/40 text-sm">
+                    Preview for React/UI components
+                  </p>
+                  <p className="text-white/30 text-xs mt-1">
+                    Works with DOM manipulation and console output
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Block Count Footer */}
+      {/* Footer */}
       <div className="p-2 border-t border-white/10 flex items-center justify-between text-xs text-white/40">
-        <span>{blocks.length} blocks</span>
-        <span>{code.split('\n').length} lines</span>
+        <div className="flex items-center gap-4">
+          <span>{blocks.length} blocks</span>
+          <span>{localCode.split('\n').length} lines</span>
+          <span className={`px-1.5 py-0.5 rounded ${editorMode === 'edit' ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-white/5'}`}>
+            {editorMode === 'edit' ? '✏️ Editing' : '👁️ Viewing'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px]">Ctrl+S to save</span>
+        </div>
       </div>
     </div>
   );

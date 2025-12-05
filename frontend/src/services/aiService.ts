@@ -1,18 +1,25 @@
 // Simulated AI Service for code explanation, optimization, and conversion
 // Replace with real API calls when integrating with OpenAI, Claude, etc.
 
+import { Language } from '../data/blockDefinitions';
+
 export interface AIResponse {
     content: string;
     type: 'explanation' | 'optimization' | 'conversion' | 'suggestion' | 'error';
-    loading?: boolean;
 }
 
-// Simulated delay for AI responses
-const simulateDelay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+export interface ExecutionResult {
+    output: string[];
+    error?: string | null;
+    variables?: Record<string, unknown>;
+}
+
+// Simulate AI delay
+const simulateAIDelay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Explain code
-export const explainCode = async (code: string, language: 'javascript' | 'python'): Promise<AIResponse> => {
-    await simulateDelay(800);
+export const explainCode = async (code: string, language: Language): Promise<AIResponse> => {
+    await simulateAIDelay(1500);
 
     const explanations: Record<string, string> = {
         'if': `📌 **Conditional Statement**\nThis code uses an \`if/else\` statement to make decisions.\n\n• The condition inside \`if()\` is evaluated\n• If true, the first block executes\n• If false, the \`else\` block runs\n\n💡 **Tip**: Conditions can use comparison operators like \`===\`, \`>\`, \`<\`, etc.`,
@@ -25,27 +32,30 @@ export const explainCode = async (code: string, language: 'javascript' | 'python
         'def': `⚡ **Function Definition (Python)**\nDefines a reusable function.\n\n• Use \`def\` keyword\n• Indent function body\n• \`return\` to send value back\n\n💡 **Tip**: Use type hints for better code: \`def func(x: int) -> str:\``,
     };
 
-    // Find matching explanation
-    for (const [keyword, explanation] of Object.entries(explanations)) {
-        if (code.toLowerCase().includes(keyword)) {
-            return { content: explanation, type: 'explanation' };
-        }
+    // Simple keyword matching for simulation
+    let explanation = "This code structure defines a program flow.\n\n";
+    if (code.toLowerCase().includes('if')) explanation += explanations['if'] + "\n\n";
+    if (code.toLowerCase().includes('for') || code.toLowerCase().includes('while')) explanation += explanations['for'] + "\n\n";
+    if (code.toLowerCase().includes('function') || code.toLowerCase().includes('def')) explanation += explanations['function'] + "\n\n";
+    if (code.toLowerCase().includes('const') || code.toLowerCase().includes('let') || code.toLowerCase().includes('=')) explanation += explanations['var'] || "" + "\n\n";
+
+    if (explanation === "This code structure defines a program flow.\n\n") {
+        explanation += "It executes a sequence of instructions to perform a task.";
     }
 
-    const defaultExplanation = language === 'javascript'
-        ? `📋 **Code Analysis**\n\nThis JavaScript code performs the following operations:\n\n1. Defines variables and data structures\n2. Processes logic based on conditions\n3. Produces output or side effects\n\n💡 **Tip**: Break complex code into smaller functions for better readability.`
-        : `📋 **Code Analysis**\n\nThis Python code performs the following operations:\n\n1. Sets up variables and data structures\n2. Processes logic with control flow\n3. Produces output or returns results\n\n💡 **Tip**: Follow PEP 8 style guidelines for cleaner Python code.`;
-
-    return { content: defaultExplanation, type: 'explanation' };
+    return {
+        content: explanation,
+        type: 'explanation'
+    };
 };
 
 // Optimize code
-export const optimizeCode = async (code: string, language: 'javascript' | 'python'): Promise<AIResponse> => {
-    await simulateDelay(1000);
+export const optimizeCode = async (code: string, language: Language): Promise<AIResponse> => {
+    await simulateAIDelay(1000);
 
     const suggestions: string[] = [];
 
-    if (language === 'javascript') {
+    if (language === 'javascript' || language === 'typescript') {
         if (code.includes('var ')) {
             suggestions.push('• Replace `var` with `const` or `let` for block scoping');
         }
@@ -61,7 +71,7 @@ export const optimizeCode = async (code: string, language: 'javascript' | 'pytho
         if (!code.includes('try')) {
             suggestions.push('• Add error handling with `try/catch` blocks');
         }
-    } else {
+    } else if (language === 'python') {
         if (code.includes('range(len(')) {
             suggestions.push('• Use `enumerate()` instead of `range(len())` for cleaner loops');
         }
@@ -74,6 +84,9 @@ export const optimizeCode = async (code: string, language: 'javascript' | 'pytho
         if (!code.includes('try:')) {
             suggestions.push('• Add exception handling with `try/except` blocks');
         }
+    } else {
+        suggestions.push('• Ensure consistent indentation and formatting');
+        suggestions.push('• Add comments to explain complex logic');
     }
 
     if (suggestions.length === 0) {
@@ -88,22 +101,23 @@ export const optimizeCode = async (code: string, language: 'javascript' | 'pytho
     };
 };
 
-// Convert between languages
+// Convert code
 export const convertCode = async (
     code: string,
-    fromLang: 'javascript' | 'python',
-    toLang: 'javascript' | 'python'
+    fromLang: Language,
+    toLang: string
 ): Promise<AIResponse> => {
-    await simulateDelay(1200);
+    await simulateAIDelay(1200);
 
     if (fromLang === toLang) {
         return { content: code, type: 'conversion' };
     }
 
-    // Basic conversion patterns
+    // Basic conversion patterns (Mock)
     let converted = code;
 
-    if (fromLang === 'javascript' && toLang === 'python') {
+    // Very basic mock conversion logic
+    if (toLang === 'python') {
         converted = code
             .replace(/const |let |var /g, '')
             .replace(/;$/gm, '')
@@ -122,7 +136,7 @@ export const convertCode = async (
             .replace(/\.push\(/g, '.append(')
             .replace(/\.forEach\((.*?) =>/g, 'for $1 in')
             .replace(/=>/g, ':');
-    } else if (fromLang === 'python' && toLang === 'javascript') {
+    } else if (toLang === 'javascript' || toLang === 'typescript') {
         converted = code
             .replace(/def (\w+)\((.*?)\):/g, 'function $1($2) {')
             .replace(/print\(/g, 'console.log(')
@@ -135,17 +149,19 @@ export const convertCode = async (
             .replace(/:\s*$/gm, ' {')
             .replace(/\.append\(/g, '.push(')
             .replace(/for (\w+) in range\((\d+)\):/g, 'for (let $1 = 0; $1 < $2; $1++) {');
+    } else {
+        converted = `// Conversion to ${toLang} not fully supported in simulation mode.\n// Here is the original code:\n\n${code}`;
     }
 
     return {
-        content: `🔄 **Converted to ${toLang === 'javascript' ? 'JavaScript' : 'Python'}**\n\n\`\`\`${toLang}\n${converted}\n\`\`\`\n\n⚠️ *This is an automated conversion. Please review and adjust as needed.*`,
+        content: `🔄 **Converted to ${toLang}**\n\n\`\`\`${toLang}\n${converted}\n\`\`\`\n\n⚠️ *This is an automated conversion. Please review and adjust as needed.*`,
         type: 'conversion'
     };
 };
 
 // Get suggestions for the current code
-export const getSuggestions = async (code: string, language: 'javascript' | 'python'): Promise<AIResponse> => {
-    await simulateDelay(600);
+export const getSuggestions = async (code: string, language: Language): Promise<AIResponse> => {
+    await simulateAIDelay(600);
 
     const suggestions = [
         {
@@ -177,21 +193,15 @@ export const getSuggestions = async (code: string, language: 'javascript' | 'pyt
 };
 
 // Execute code (simulated)
-export interface ExecutionResult {
-    output: string[];
-    error: string | null;
-    variables: Record<string, unknown>;
-}
-
-export const executeCode = async (code: string, language: 'javascript' | 'python'): Promise<ExecutionResult> => {
-    await simulateDelay(500);
+export const executeCode = async (code: string, language: Language): Promise<ExecutionResult> => {
+    await simulateAIDelay(500);
 
     // Simulate execution output
     const output: string[] = [];
     const variables: Record<string, unknown> = {};
 
     // Extract console.log/print statements (very basic simulation)
-    const printRegex = language === 'javascript'
+    const printRegex = (language === 'javascript' || language === 'typescript')
         ? /console\.log\(["'`](.+?)["'`]\)/g
         : /print\(["'](.+?)["']\)/g;
 
@@ -201,7 +211,7 @@ export const executeCode = async (code: string, language: 'javascript' | 'python
     }
 
     // Extract variables (basic simulation)
-    const varRegex = language === 'javascript'
+    const varRegex = (language === 'javascript' || language === 'typescript')
         ? /(?:const|let|var)\s+(\w+)\s*=\s*(.+?);/g
         : /(\w+)\s*=\s*(.+?)$/gm;
 

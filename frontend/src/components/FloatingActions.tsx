@@ -6,7 +6,7 @@ import {
     MessageCircle,
     X,
 } from 'lucide-react';
-import { Language } from '../hooks/useCodeGeneration';
+import { Language } from '../data/blockDefinitions';
 
 interface FloatingActionsProps {
     language: Language;
@@ -18,6 +18,12 @@ export default function FloatingActions({
     onConvert,
 }: FloatingActionsProps) {
     const [isExpanded, setIsExpanded] = useState(false);
+
+    const getConvertLabel = () => {
+        if (language === 'javascript') return 'Convert to Python';
+        if (language === 'python') return 'Convert to JavaScript';
+        return 'Convert Code';
+    };
 
     const actions = [
         {
@@ -37,7 +43,7 @@ export default function FloatingActions({
         {
             id: 'convert',
             icon: <ArrowRightLeft size={18} />,
-            label: `Convert to ${language === 'javascript' ? 'Python' : 'JavaScript'}`,
+            label: getConvertLabel(),
             color: 'neon-gold',
             onClick: onConvert,
         },
