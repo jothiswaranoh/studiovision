@@ -41,6 +41,7 @@ type EditorMode = 'edit' | 'view';
 
 const LANGUAGES: { value: Language; label: string }[] = [
   { value: 'javascript', label: 'JavaScript' },
+  { value: 'typescript', label: 'TypeScript' },
   { value: 'python', label: 'Python' },
   { value: 'java', label: 'Java' },
   { value: 'c', label: 'C' },
@@ -71,6 +72,13 @@ export default function CodePanel({
   const [copied, setCopied] = useState(false);
   const [localCode, setLocalCode] = useState(code);
   const editorRef = useRef<any>(null);
+
+  // Automatically show the Console tab whenever new output arrives
+  useEffect(() => {
+    if (consoleOutput.length > 0 && consoleOutput.some(line => line.includes('▶') || line.includes('❌') || line.includes('✅'))) {
+      setActiveTab('console');
+    }
+  }, [consoleOutput]);
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'code', label: 'Code', icon: <Code size={14} /> },
@@ -137,6 +145,11 @@ export default function CodePanel({
       setLocalCode(newCode);
       onCodeChange?.(newCode);
     });
+
+    // Set initial read-only state
+    if (editorMode === 'view') {
+      editor.updateOptions({ readOnly: true });
+    }
   };
 
   // Highlight code range when block is highlighted
@@ -206,15 +219,39 @@ export default function CodePanel({
     const newMode = editorMode === 'edit' ? 'view' : 'edit';
     setEditorMode(newMode);
 
-    if (newMode === 'view' && editorRef.current) {
-      editorRef.current.updateOptions({ readOnly: true });
-    } else if (editorRef.current) {
-      editorRef.current.updateOptions({ readOnly: false });
+    if (editorRef.current) {
+      editorRef.current.updateOptions({ readOnly: newMode === 'view' });
+    }
+
+    // When switching to view mode, clear any hover states
+    if (newMode === 'view') {
+      onCodeLineHover(null);
     }
   };
 
   const handleTogglePanel = () => {
     onToggle?.(!isOpen);
+  };
+
+  // Helper to format console output lines
+  const formatConsoleLine = (line: string, index: number) => {
+    if (line.startsWith('▶')) {
+      return <div key={index} className="text-neon-cyan font-semibold py-1">{line}</div>;
+    } else if (line.startsWith('✅')) {
+      return <div key={index} className="text-green-400 font-semibold py-1">{line}</div>;
+    } else if (line.startsWith('❌')) {
+      return <div key={index} className="text-red-400 font-semibold py-1">{line}</div>;
+    } else if (line.startsWith('⚠️')) {
+      return <div key={index} className="text-yellow-400 font-semibold py-1">{line}</div>;
+    } else if (line.startsWith('---')) {
+      return <div key={index} className="text-white/30 border-t border-white/10 pt-2 mt-2">{line}</div>;
+    } else if (line.startsWith('>')) {
+      return <div key={index} className="text-yellow-300 py-0.5 font-mono">{line}</div>;
+    } else if (line.trim() === '') {
+      return <div key={index} className="py-0.5">&nbsp;</div>;
+    } else {
+      return <div key={index} className="text-white/70 py-0.5">{line}</div>;
+    }
   };
 
   // When panel is closed
@@ -329,9 +366,14 @@ export default function CodePanel({
                 Editing Mode
               </div>
             )}
+            {editorMode === 'view' && (
+              <div className="absolute top-3 right-3 z-10 px-2 py-1 bg-neon-purple/20 text-neon-purple text-xs font-medium rounded-md">
+                View Mode
+              </div>
+            )}
             <Editor
               height="100%"
-              language={language === 'javascript' ? 'javascript' : 'python'}
+              language={getEditorLanguage(language)}
               value={localCode}
               onMount={handleEditorMount}
               options={{
@@ -436,25 +478,7 @@ export default function CodePanel({
         {activeTab === 'console' && (
           <div className="h-full overflow-y-auto p-4 font-mono text-sm bg-black/20">
             {consoleOutput.length > 0 ? (
-              consoleOutput.map((line, index) => (
-                <div
-                  key={index}
-                  className={`py-0.5 ${line.startsWith('▶')
-                    ? 'text-neon-cyan'
-                    : line.startsWith('✅')
-                      ? 'text-green-400'
-                      : line.startsWith('❌')
-                        ? 'text-red-400'
-                        : line.startsWith('>')
-                          ? 'text-yellow-300'
-                          : line.startsWith('---')
-                            ? 'text-white/30 border-t border-white/10 pt-2 mt-2'
-                            : 'text-white/70'
-                    }`}
-                >
-                  {line}
-                </div>
-              ))
+              consoleOutput.map((line, index) => formatConsoleLine(line, index))
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Terminal size={40} className="text-white/20 mb-3" />
@@ -510,4 +534,19 @@ export default function CodePanel({
       </div>
     </div>
   );
+}
+
+// Helper function to map custom language to Monaco language
+function getEditorLanguage(language: Language): string {
+  const mapping: Record<Language, string> = {
+    javascript: 'javascript',
+    typescript: 'typescript',
+    python: 'python',
+    java: 'java',
+    c: 'c',
+    cpp: 'cpp',
+    ruby: 'ruby',
+    sql: 'sql'
+  };
+  return mapping[language] || 'javascript';
 }
