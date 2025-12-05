@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { CanvasBlock, Connection, Selection } from '../hooks/useBlocks';
 import { BlockDefinition, BLOCK_CATEGORIES, BlockCategory } from '../data/blockDefinitions';
+import { validateConnection, getDataTypeColor, DragConnectionState } from '../types/connection';
+import showToast from '../components/Toast';
 
 interface VisualCanvasProps {
     blocks: CanvasBlock[];
@@ -64,7 +66,8 @@ export default function VisualCanvas({
     const [tool, setTool] = useState<Tool>('select');
     const [isDragging, setIsDragging] = useState(false);
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-    const [connectionStart, setConnectionStart] = useState<{ blockId: string; portId: string } | null>(null);
+    const [connectionStart, setConnectionStart] = useState<DragConnectionState | null>(null);
+    const [hoveredPortId, setHoveredPortId] = useState<string | null>(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
     // Resize handling
@@ -161,11 +164,49 @@ export default function VisualCanvas({
 
     const handleMouseUp = () => {
         setIsDragging(false);
-        if (connectionStart) {
-            // Check if mouse is over a port to complete connection
-            // For now, just clear the connection start
-            setConnectionStart(null);
+
+        // Complete connection if we have a start and are hovering over a valid port
+        if (connectionStart && hoveredPortId) {
+            const targetBlock = blocks.find(b =>
+                b.definition.inputs.some(p => p.id === hoveredPortId) ||
+                b.definition.outputs.some(p => p.id === hoveredPortId)
+            );
+
+            if (targetBlock) {
+                const targetPort = [...targetBlock.definition.inputs, ...targetBlock.definition.outputs]
+                    .find(p => p.id === hoveredPortId);
+                const sourceBlock = blocks.find(b => b.id === connectionStart.blockId);
+                const sourcePort = sourceBlock ?
+                    [...sourceBlock.definition.inputs, ...sourceBlock.definition.outputs]
+                        .find(p => p.id === connectionStart.portId) : null;
+
+                if (targetPort && sourcePort && sourceBlock) {
+                    // Validate connection
+                    const validation = validateConnection(sourcePort, targetPort);
+
+                    if (validation.isValid) {
+                        // Determine which is input and which is output
+                        const isSourceOutput = connectionStart.portType === 'output';
+                        const fromBlockId = isSourceOutput ? connectionStart.blockId : targetBlock.id;
+                        const fromPortId = isSourceOutput ? connectionStart.portId : hoveredPortId;
+                        const toBlockId = isSourceOutput ? targetBlock.id : connectionStart.blockId;
+                        const toPortId = isSourceOutput ? hoveredPortId : connectionStart.portId;
+
+                        const success = onConnectionCreate(fromBlockId, fromPortId, toBlockId, toPortId);
+                        if (success) {
+                            showToast.connection('Connection created successfully');
+                        } else {
+                            showToast.error('Failed to create connection');
+                        }
+                    } else {
+                        showToast.error(validation.reason || 'Invalid connection');
+                    }
+                }
+            }
         }
+
+        setConnectionStart(null);
+        setHoveredPortId(null);
     };
 
     // Block rendering
@@ -264,56 +305,110 @@ export default function VisualCanvas({
                 />
 
                 {/* Input Ports */}
-                {block.definition.inputs.map((port, index) => (
-                    <Group key={port.id}>
-                        <Circle
-                            x={0}
-                            y={60 + index * 24}
-                            radius={6}
-                            fill={port.dataType === 'flow' ? '#0080FF' : categoryInfo.color}
-                            stroke="#000"
-                            strokeWidth={1}
-                            onMouseDown={(e) => {
-                                e.cancelBubble = true;
-                                setConnectionStart({ blockId: block.id, portId: port.id });
-                            }}
-                        />
-                        <Text
-                            x={12}
-                            y={54 + index * 24}
-                            text={port.label}
-                            fontSize={10}
-                            fill="rgba(255, 255, 255, 0.6)"
-                        />
-                    </Group>
-                ))}
+                {block.definition.inputs.map((port, index) => {
+                    const isHovered = hoveredPortId === port.id;
+                    const portColor = getDataTypeColor(port.dataType);
+                    const isValidTarget = connectionStart && connectionStart.portType === 'output' &&
+                        validateConnection(
+                            blocks.find(b => b.id === connectionStart.blockId)?.definition.outputs.find(p => p.id === connectionStart.portId)!,
+                            port
+                        ).isValid;
+
+                    return (
+                        <Group key={port.id}>
+                            {/* Port highlight ring */}
+                            {(isHovered || (connectionStart && isValidTarget)) && (
+                                <Circle
+                                    x={0}
+                                    y={60 + index * 24}
+                                    radius={10}
+                                    fill={isValidTarget ? '#00FF88' : '#00FFFF'}
+                                    opacity={0.3}
+                                />
+                            )}
+                            <Circle
+                                x={0}
+                                y={60 + index * 24}
+                                radius={6}
+                                fill={portColor}
+                                stroke={isHovered ? '#FFFFFF' : '#000'}
+                                strokeWidth={isHovered ? 2 : 1}
+                                onMouseDown={(e) => {
+                                    e.cancelBubble = true;
+                                    setConnectionStart({
+                                        blockId: block.id,
+                                        portId: port.id,
+                                        portType: 'input',
+                                        dataType: port.dataType
+                                    });
+                                }}
+                                onMouseEnter={() => setHoveredPortId(port.id)}
+                                onMouseLeave={() => setHoveredPortId(null)}
+                            />
+                            <Text
+                                x={12}
+                                y={54 + index * 24}
+                                text={port.label}
+                                fontSize={10}
+                                fill="rgba(255, 255, 255, 0.6)"
+                            />
+                        </Group>
+                    );
+                })}
 
                 {/* Output Ports */}
-                {block.definition.outputs.map((port, index) => (
-                    <Group key={port.id}>
-                        <Circle
-                            x={block.width}
-                            y={60 + index * 24}
-                            radius={6}
-                            fill={port.dataType === 'flow' ? '#0080FF' : categoryInfo.color}
-                            stroke="#000"
-                            strokeWidth={1}
-                            onMouseDown={(e) => {
-                                e.cancelBubble = true;
-                                setConnectionStart({ blockId: block.id, portId: port.id });
-                            }}
-                        />
-                        <Text
-                            x={block.width - 50}
-                            y={54 + index * 24}
-                            text={port.label}
-                            fontSize={10}
-                            fill="rgba(255, 255, 255, 0.6)"
-                            align="right"
-                            width={40}
-                        />
-                    </Group>
-                ))}
+                {block.definition.outputs.map((port, index) => {
+                    const isHovered = hoveredPortId === port.id;
+                    const portColor = getDataTypeColor(port.dataType);
+                    const isValidTarget = connectionStart && connectionStart.portType === 'input' &&
+                        validateConnection(
+                            port,
+                            blocks.find(b => b.id === connectionStart.blockId)?.definition.inputs.find(p => p.id === connectionStart.portId)!
+                        ).isValid;
+
+                    return (
+                        <Group key={port.id}>
+                            {/* Port highlight ring */}
+                            {(isHovered || (connectionStart && isValidTarget)) && (
+                                <Circle
+                                    x={block.width}
+                                    y={60 + index * 24}
+                                    radius={10}
+                                    fill={isValidTarget ? '#00FF88' : '#00FFFF'}
+                                    opacity={0.3}
+                                />
+                            )}
+                            <Circle
+                                x={block.width}
+                                y={60 + index * 24}
+                                radius={6}
+                                fill={portColor}
+                                stroke={isHovered ? '#FFFFFF' : '#000'}
+                                strokeWidth={isHovered ? 2 : 1}
+                                onMouseDown={(e) => {
+                                    e.cancelBubble = true;
+                                    setConnectionStart({
+                                        blockId: block.id,
+                                        portId: port.id,
+                                        portType: 'output',
+                                        dataType: port.dataType
+                                    });
+                                }}
+                                onMouseEnter={() => setHoveredPortId(port.id)}
+                                onMouseLeave={() => setHoveredPortId(null)}
+                            />
+                            <Text
+                                x={block.width - 50}
+                                y={54 + index * 24}
+                                text={port.label}
+                                fontSize={10}
+                                fill="rgba(255, 255, 255, 0.6)"
+                                align="right"
+                                width={40}
+                            />
+                        </Group>
+                    );
+                })}
             </Group>
         );
     };
@@ -367,7 +462,7 @@ export default function VisualCanvas({
         const fromBlock = blocks.find((b) => b.id === connectionStart.blockId);
         if (!fromBlock) return null;
 
-        const isOutput = fromBlock.definition.outputs.some((p) => p.id === connectionStart.portId);
+        const isOutput = connectionStart.portType === 'output';
         const portIndex = isOutput
             ? fromBlock.definition.outputs.findIndex((p) => p.id === connectionStart.portId)
             : fromBlock.definition.inputs.findIndex((p) => p.id === connectionStart.portId);
@@ -375,12 +470,30 @@ export default function VisualCanvas({
         const startX = isOutput ? fromBlock.x + fromBlock.width : fromBlock.x;
         const startY = fromBlock.y + 60 + portIndex * 24;
 
+        // Check if hovering over a valid target port
+        let isValid = true;
+        if (hoveredPortId) {
+            const targetBlock = blocks.find(b =>
+                b.definition.inputs.some(p => p.id === hoveredPortId) ||
+                b.definition.outputs.some(p => p.id === hoveredPortId)
+            );
+            if (targetBlock) {
+                const targetPort = [...targetBlock.definition.inputs, ...targetBlock.definition.outputs]
+                    .find(p => p.id === hoveredPortId);
+                const sourcePort = [...fromBlock.definition.inputs, ...fromBlock.definition.outputs]
+                    .find(p => p.id === connectionStart.portId);
+                if (targetPort && sourcePort) {
+                    isValid = validateConnection(sourcePort, targetPort).isValid;
+                }
+            }
+        }
+
         return (
             <Line
                 points={[startX, startY, mousePos.x, mousePos.y]}
-                stroke="#00FFFF"
+                stroke={isValid ? '#00FFFF' : '#FF0055'}
                 strokeWidth={2}
-                opacity={0.5}
+                opacity={0.6}
                 dash={[5, 5]}
                 lineCap="round"
             />
@@ -399,8 +512,8 @@ export default function VisualCanvas({
                 <button
                     onClick={() => setTool('select')}
                     className={`p-2 rounded-md transition-all duration-200 ${tool === 'select'
-                            ? 'bg-neon-cyan/20 text-neon-cyan'
-                            : 'text-white/60 hover:text-white hover:bg-white/10'
+                        ? 'bg-neon-cyan/20 text-neon-cyan'
+                        : 'text-white/60 hover:text-white hover:bg-white/10'
                         }`}
                     title="Select Tool (V)"
                 >
@@ -409,8 +522,8 @@ export default function VisualCanvas({
                 <button
                     onClick={() => setTool('pan')}
                     className={`p-2 rounded-md transition-all duration-200 ${tool === 'pan'
-                            ? 'bg-neon-cyan/20 text-neon-cyan'
-                            : 'text-white/60 hover:text-white hover:bg-white/10'
+                        ? 'bg-neon-cyan/20 text-neon-cyan'
+                        : 'text-white/60 hover:text-white hover:bg-white/10'
                         }`}
                     title="Pan Tool (H)"
                 >
@@ -439,8 +552,8 @@ export default function VisualCanvas({
                     onClick={onUndo}
                     disabled={!canUndo}
                     className={`p-2 rounded-md transition-all duration-200 ${canUndo
-                            ? 'text-white/60 hover:text-white hover:bg-white/10'
-                            : 'text-white/20 cursor-not-allowed'
+                        ? 'text-white/60 hover:text-white hover:bg-white/10'
+                        : 'text-white/20 cursor-not-allowed'
                         }`}
                     title="Undo"
                 >
@@ -450,8 +563,8 @@ export default function VisualCanvas({
                     onClick={onRedo}
                     disabled={!canRedo}
                     className={`p-2 rounded-md transition-all duration-200 ${canRedo
-                            ? 'text-white/60 hover:text-white hover:bg-white/10'
-                            : 'text-white/20 cursor-not-allowed'
+                        ? 'text-white/60 hover:text-white hover:bg-white/10'
+                        : 'text-white/20 cursor-not-allowed'
                         }`}
                     title="Redo"
                 >
