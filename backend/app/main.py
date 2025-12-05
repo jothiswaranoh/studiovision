@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routers import execute
+
 app = FastAPI(
     title="Visual Programming Platform API",
     description="Backend API for the Visual Programming Platform",
@@ -15,6 +17,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Routers
+app.include_router(execute.router)
+
 
 @app.get("/")
 async def read_root():

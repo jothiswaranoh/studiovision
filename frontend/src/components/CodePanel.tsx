@@ -157,6 +157,8 @@ export default function CodePanel({
       if (editorMode === 'edit') {
         const newCode = editor.getValue();
         setLocalCode(newCode);
+        // Propagate changes up so useAppState.editedCode stays in sync
+        onCodeChange?.(newCode);
       }
     });
 
@@ -215,7 +217,14 @@ export default function CodePanel({
     setIsAiLoading(true);
     setActiveTab('ai');
     try {
-      const response = await explainCode(localCode, language as any);
+      // Build a richer prompt that includes console errors when present
+      const prompt = consoleOutput && consoleOutput.length > 0
+        ? `Here is the user's code (language: ${language}):\n\n${localCode}\n\n` +
+          `And here is the console output / error they saw when running it:\n\n${consoleOutput.join('\n')}\n\n` +
+          'Explain the error (if any) and how to fix the code. Then describe what this code does in simple terms.'
+        : localCode;
+
+      const response = await explainCode(prompt, language as any);
       setAiResponse(response);
     } catch (error) {
       setAiResponse({ content: 'Failed to get explanation from AI service', type: 'error' });
@@ -228,7 +237,12 @@ export default function CodePanel({
     setIsAiLoading(true);
     setActiveTab('ai');
     try {
-      const response = await optimizeCode(localCode, language as any);
+      const prompt = consoleOutput && consoleOutput.length > 0
+        ? `Optimize the following ${language} code and, if there is an error in the console output, fix it as well.\n\n` +
+          `Code:\n${localCode}\n\nConsole output:\n${consoleOutput.join('\n')}`
+        : localCode;
+
+      const response = await optimizeCode(prompt, language as any);
       setAiResponse(response);
 
       // If optimization includes code, offer to apply it

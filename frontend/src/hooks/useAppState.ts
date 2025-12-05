@@ -3,6 +3,7 @@ import { useResizablePanel } from './useResizablePanel';
 import { useCodeGeneration } from './useCodeGeneration';
 import { useBlocks } from './useBlocks';
 import { BlockDefinition, BlockGroupKey, Language } from '../data/blockDefinitions';
+import { runConsoleAsync } from '../services/consoleRunner';
 
 
 export default function useAppState() {
@@ -37,99 +38,10 @@ export default function useAppState() {
         // Prefer the code the user is editing; fall back to generated code
         const sourceCode = editedCode.trim().length > 0 ? editedCode : code;
 
-        // Reset console and show running status
-        setConsoleOutput(['▶ Running code...', '']);
-
-        // Basic syntax checking for JavaScript / TypeScript
-        if (language === 'javascript' || language === 'typescript') {
-            try {
-                // Parse only, do not execute
-                // eslint-disable-next-line no-new-func
-                new Function(sourceCode);
-            } catch (err) {
-                const error = err as Error;
-                setConsoleOutput([
-                    '❌ Syntax error in your code',
-                    '',
-                    error.message,
-                ]);
-                setIsRunning(false);
-                return;
-            }
-        }
-
-        setTimeout(() => {
-            const output = ['✅ Execution complete!', '', '--- Output ---'];
-
-            let printed = false;
-
-            const pushClean = (raw: string) => {
-                const cleaned = raw
-                    .replace(/["'`]/g, '')
-                    .replace(/;$/, '')
-                    .trim();
-                if (cleaned) {
-                    output.push(`> ${cleaned}`);
-                    printed = true;
-                }
-            };
-
-            if (language === 'javascript' || language === 'typescript') {
-                const regex = /console\.log\(([^)]*)\)/g;
-                let match;
-                while ((match = regex.exec(sourceCode)) !== null) {
-                    pushClean(match[1]);
-                }
-            } else if (language === 'python') {
-                const regex = /print\(([^)]*)\)/g;
-                let match;
-                while ((match = regex.exec(sourceCode)) !== null) {
-                    pushClean(match[1]);
-                }
-            } else if (language === 'java') {
-                const regex = /System\.out\.println\(([^)]*)\)/g;
-                let match;
-                while ((match = regex.exec(sourceCode)) !== null) {
-                    pushClean(match[1]);
-                }
-            } else if (language === 'c') {
-                const regex = /printf\(([^)]*)\)/g;
-                let match;
-                while ((match = regex.exec(sourceCode)) !== null) {
-                    pushClean(match[1]);
-                }
-            } else if (language === 'cpp') {
-                const regex = /std::cout\s*<<\s*([^;]+);/g;
-                let match;
-                while ((match = regex.exec(sourceCode)) !== null) {
-                    pushClean(match[1]);
-                }
-            } else if (language === 'ruby') {
-                const regex = /(?:puts|print)\s+(.+)/g;
-                let match;
-                while ((match = regex.exec(sourceCode)) !== null) {
-                    pushClean(match[1]);
-                }
-            }
-
-            if (!printed) {
-                // Fallback: echo the user's code so console isn't empty
-                const lines = sourceCode.split('\n');
-                if (lines.length > 0) {
-                    lines.forEach((line) => {
-                        const cleanedLine = line.trim();
-                        if (cleanedLine.length > 0) {
-                            output.push(`> ${cleanedLine}`);
-                        }
-                    });
-                } else {
-                    output.push('No output generated. Add a Print block or use print()/console.log().');
-                }
-            }
-
-            setConsoleOutput(output);
-            setIsRunning(false);
-        }, 1000);
+        // Ask console runner to evaluate & format output (Python via backend)
+        const result = await runConsoleAsync(language, sourceCode);
+        setConsoleOutput(result);
+        setIsRunning(false);
     }, [code, editedCode, language]);
 
     const handleCodeLineHover = useCallback((line: number | null) => {
