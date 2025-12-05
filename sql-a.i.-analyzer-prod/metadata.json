@@ -1,0 +1,5 @@
+{
+  "name": "SQL A.I. Analyzer PROD",
+  "description": "An intelligent SQL analysis tool that visualizes query execution plans, schema relationships, and data transformations using the Gemini API and a mock database.",
+  "requestFramePermissions": []
+}
